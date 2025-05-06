@@ -10,6 +10,8 @@ import numpy as np
 from dotenv import load_dotenv
 import pdb
 from tqdm import tqdm, trange
+import warnings
+
 load_dotenv()  # take environment variables
 SIMFIN_API_KEY = os.getenv("SIMFIN_API_KEY")
 sf.set_api_key(SIMFIN_API_KEY)
@@ -39,6 +41,9 @@ class SimFinWrangler:
         df_income = sf.load_income(variant=variant, market='us')
         df_income["Earnings Per Share (Basic)"] = df_income["Net Income (Common)"] / df_income["Shares (Basic)"]
         df_income["Earnings Per Share (Diluted)"] = df_income["Net Income (Common)"] / df_income["Shares (Diluted)"]
+
+        # if all rows for a ticker are NaN, drop the ticker
+        df_income = df_income[df_income.notna().any(axis=1)]
 
         return df_income
 
@@ -70,7 +75,6 @@ class SimFinWrangler:
             pd.DataFrame: _description_
         """
         eps_small = eps[["SimFinId", "Earnings Per Share (Basic)"]]
-        print(eps_small.index)
         # Create copy of share prices dataframe
         normalized_prices = share_prices.copy()
         
@@ -104,18 +108,32 @@ class SimFinWrangler:
                         
                         # Avoid division by zero or negative EPS
                         if latest_eps > 0:
-                            # Calculate normalized price (P/E ratio)
-                            normalized_prices.loc[(ticker, date), "Close"] = row["Close"] / latest_eps
+                            # Calculate normalized price (P/E ratio), in a new column
+                            normalized_prices.loc[(ticker, date), "Open (E)"] = row["Open"] / latest_eps
+                            normalized_prices.loc[(ticker, date), "High (E)"] = row["High"] / latest_eps
+                            normalized_prices.loc[(ticker, date), "Low (E)"] = row["Low"] / latest_eps
+                            normalized_prices.loc[(ticker, date), "Close (E)"] = row["Close"] / latest_eps
+                            normalized_prices.loc[(ticker, date), "Adj. Close (E)"] = row["Adj. Close"] / latest_eps
                         else:
                             # Set to NaN if EPS is zero or negative
-                            normalized_prices.loc[(ticker, date), "Close"] = np.nan
+                            normalized_prices.loc[(ticker, date), "Open (E)"] = np.nan
+                            normalized_prices.loc[(ticker, date), "High (E)"] = np.nan
+                            normalized_prices.loc[(ticker, date), "Low (E)"] = np.nan
+                            normalized_prices.loc[(ticker, date), "Close (E)"] = np.nan
+                            normalized_prices.loc[(ticker, date), "Adj. Close (E)"] = np.nan
                     else:
                         # No valid EPS data for this date
-                        normalized_prices.loc[(ticker, date), "Close"] = np.nan
+                        normalized_prices.loc[(ticker, date), "Open (E)"] = np.nan
+                        normalized_prices.loc[(ticker, date), "High (E)"] = np.nan
+                        normalized_prices.loc[(ticker, date), "Low (E)"] = np.nan
+                        normalized_prices.loc[(ticker, date), "Close (E)"] = np.nan
+                        normalized_prices.loc[(ticker, date), "Adj. Close (E)"] = np.nan
             except KeyError:
                 # Skip if ticker not found in EPS data
-                continue
-                
+                warnings.warn(f"Ticker {ticker} missing from EPS data")
+
+        # if any rows for a ticker are NaN, drop the ticker
+        normalized_prices = normalized_prices[normalized_prices.notna().any(axis=1)]
         return normalized_prices
 
 
@@ -132,7 +150,9 @@ if __name__ == "__main__":
     # filter companies for sector Utilities
     utility_companies = companies[companies["Sector"] == "Utilities"]
     utility_tickers = utility_companies.index.to_list()
-    
+    print(utility_tickers)
     eps = SimFinWrangler.calculate_eps_from_income()
+    print(eps)
+
     normalized_prices = SimFinWrangler.calculate_normalized_prices(df_prices, eps, filter=utility_tickers)
     save_to_csv(normalized_prices, os.path.join(os.getenv("DATA_DIR"), "normalized_prices.csv"))
