@@ -11,6 +11,7 @@ from tqdm import tqdm
 import time
 import warnings
 import numpy as np
+from datetime import datetime
 load_dotenv()
 
 SIMFIN_API_KEY = os.getenv("SIMFIN_API_KEY")
@@ -61,10 +62,10 @@ class SimFinWrangler:
         return df
 
     @staticmethod
-    def get_derived_data(ticker:list | str) -> pd.DataFrame:
+    def get_derived_data(ticker:list | str, start_date:datetime, end_date:datetime) -> pd.DataFrame:
         """Get the derived data for a list of tickers
         """
-        def get_derived_data_for_ticker(ticker:str) -> pd.DataFrame:
+        def get_derived_data_for_ticker(ticker:str, start_date:datetime, end_date:datetime) -> pd.DataFrame:
             """Get the derived data for a single ticker
             """
             url = f"https://backend.simfin.com/api/v3/companies/statements/compact?ticker={ticker}&statements=DERIVED"
