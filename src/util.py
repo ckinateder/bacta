@@ -28,22 +28,12 @@ def load_sec_tickers(data_dir:str=os.getenv("DATA_DIR")) -> pd.DataFrame:
     df.set_index("cik", inplace=True)
     return df
 
-def plot_price_data(series:pd.Series, title:str=None, xlabel:str=None, ylabel:str=None):
-    """Plot the price data.
+def save_data(df:pd.DataFrame, filename:str, data_dir:str=os.getenv("DATA_DIR")):
+    """Save the data to a CSV and pickle file.
     """
-    #import pdb; pdb.set_trace()
-    
-    plt.figure(figsize=(10, 5))
-    plt.plot(series)
-    # dotted grid
-    plt.grid(True, linestyle='--', alpha=0.7)
-    # set the x tick labels to be just the date, use strftime. only show a total of 20 ticks
-    plt.xticks(series.index[::len(series)//20], series.index[::len(series)//20].strftime('%Y-%m-%d'), rotation=45)
-    plt.title(title)
-    plt.xlabel(xlabel)
-    plt.ylabel(ylabel)
-    plt.show()
-
+    path = os.path.join(data_dir, filename)
+    df.to_csv(path)
+    df.to_pickle(path.replace(".csv", ".pkl"))
 
 if __name__ == "__main__":
     sec_tickers = load_sec_tickers()

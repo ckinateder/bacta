@@ -15,7 +15,8 @@ import requests
 import time
 from tqdm import tqdm
 import numpy as np
-from util import load_sec_tickers, plot_price_data
+from util import load_sec_tickers, save_data
+import matplotlib.pyplot as plt
 load_dotenv()
 
 ALPACA_API_KEY = os.getenv("ALPACA_API_KEY")
@@ -55,19 +56,18 @@ def normalize_price_data_by_derived_data(price_data:pd.DataFrame, eps_small:pd.D
             # Get EPS values for this ticker
             ticker_eps = eps_small.loc[ticker]
             ticker_eps = ticker_eps.sort_index()
+        
+            #print(ticker_eps)
 
             # For each date in ticker_prices
             for date, row in ticker_prices.iterrows():
-                #print(type(date))
-                #print(type(ticker_eps.index[0]))
-
                 # Find the most recent EPS value before this date
                 valid_eps = ticker_eps[ticker_eps.index > date]
                 
                 #pdb.set_trace()
                 if not valid_eps.empty:
                     # Get the most recent EPS value
-                    latest_eps = valid_eps.iloc[-1]["EPS TTM"]
+                    latest_eps = valid_eps.iloc[0]["EPS TTM"]
                     inferred = False
                 else:
                     inferred = True
@@ -141,6 +141,10 @@ class SimFinClient:
 
             # convert Report Date to datetime
             df["Report Date"] = pd.to_datetime(df["Report Date"])
+
+            # sort by Report Date
+            df = df.sort_values(by="Report Date")
+
             # add ticker to the dataframe and make it the first column
             df.insert(0, "ticker", ticker)
             
@@ -160,6 +164,7 @@ class SimFinClient:
                     print(f"Error: {e}")
                     continue
             ct = pd.concat(dfs)
+
             # add utc timezone to Report Date
             ct["Report Date"] = pd.to_datetime(ct["Report Date"]).dt.tz_localize("UTC")
 
@@ -177,7 +182,27 @@ class SimFinClient:
             return ct
         else:
             raise ValueError(f"Invalid ticker type: {type(ticker)}")
+
+def plot_price_data(df:pd.DataFrame, title:str=None):
+    """Plot the price data.
+    """
+    #import pdb; pdb.set_trace()
+    series = df.loc[:, 'close (e)']
     
+    plt.figure(figsize=(12, 8))
+    plt.xlabel("Date")
+    plt.ylabel("Price Adjusted for EPS")
+    plt.title(title)
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.plot(series)
+    # also plot the eps data on its own y axis
+    plt.xticks(series.index[::len(series)//20], series.index[::len(series)//20].strftime('%Y-%m-%d'), rotation=45)
+    ax2 = plt.twinx()
+    ax2.plot(df.loc[:, 'EPS TTM'], color='red')
+    ax2.set_ylabel("EPS TTM")
+    plt.legend(["Price Adjusted for EPS", "EPS TTM"])
+    plt.show()
+
 if __name__ == "__main__":
     utility_tickers = ['NEE', 'EXC', 'D', 'PCG', 'XEL', 
                         'ED', 'WEC', 'DTE', 'PPL', 'AEE', 'CNP', 'FE', 'CMS', 
@@ -191,16 +216,13 @@ if __name__ == "__main__":
                                       timeframe=TimeFrame.Hour,
                                       start=start_date,
                                       end=end_date) # adjustment=all?
-    #bars = client.get_stock_bars(request_params).df
-    #bars.to_csv('data/utility_bars.csv')
-    #bars.to_pickle('data/utility_bars.pkl')
+    # bars = client.get_stock_bars(request_params).df
+    #save_data(bars, 'utility_bars.csv')
     bars = pd.read_pickle('data/utility_bars.pkl')
-    bars.info()
 
     simfin_client = SimFinClient()
-    #derived_data = simfin_client.get_derived_data(utility_tickers, start_date=None, end_date=end_date, condensed=False)
-    #derived_data.to_csv('data/derived_data.csv')
-    #derived_data.to_pickle('data/derived_data.pkl')
+    # derived_data = simfin_client.get_derived_data(utility_tickers, start_date=None, end_date=end_date, condensed=False)
+    # save_data(derived_data, 'derived_data.csv')
     derived_data = pd.read_pickle('data/derived_data.pkl')
 
     derived_data = derived_data[["Fiscal Period", "Fiscal Year", "Earnings Per Share, Basic"]]
@@ -210,10 +232,9 @@ if __name__ == "__main__":
 
     # normalize the price data by the derived data
     #normalized_data = normalize_price_data_by_derived_data(bars, derived_data)
-    #normalized_data.to_csv('data/normalized_data.csv')
-    # normalized_data.to_pickle('data/normalized_data.pkl')
+    #save_data(normalized_data, 'normalized_data.csv')
     normalized_data = pd.read_pickle('data/normalized_data.pkl')
     normalized_data.info()
 
     # plot the price data
-    plot_price_data(normalized_data.loc['NEE'], title="NEE Hourly Price Data", xlabel="Date", ylabel="Price Adjusted for EPS")
+    plot_price_data(normalized_data.loc['NEE'], title="NEE Hourly Price Data")
