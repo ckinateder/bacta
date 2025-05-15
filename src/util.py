@@ -32,8 +32,8 @@ def save_data(df:pd.DataFrame, filename:str, data_dir:str=os.getenv("DATA_DIR"))
     """Save the data to a CSV and pickle file.
     """
     path = os.path.join(data_dir, filename)
-    df.to_csv(path)
-    df.to_pickle(path.replace(".csv", ".pkl"))
+    df.to_csv(path+".csv")
+    df.to_pickle(path+".pkl")
 
 if __name__ == "__main__":
     sec_tickers = load_sec_tickers()

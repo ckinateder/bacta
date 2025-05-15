@@ -23,21 +23,38 @@ def resample_multi_ticker_bars(bars:pd.DataFrame, time_frame:timedelta=timedelta
     
     # Get unique tickers
     tickers = bars.index.get_level_values('symbol').unique()
-    
+
+    latest_start = None
+    earliest_end = None
+
     # Process each ticker
     for ticker in tickers:
         # Get data for this ticker
         ticker_data = bars.loc[ticker]
+        # start and end of the ticker data
+        start = ticker_data.index.get_level_values('timestamp').min()
+        end = ticker_data.index.get_level_values('timestamp').max()
+        if latest_start is None or start > latest_start:
+            latest_start = start
+        if earliest_end is None or end < earliest_end:
+            earliest_end = end
+        
         # Resample the data
         resampled_ticker = resample_bars(ticker_data, time_frame)
         # Add the ticker back to the index
         resampled_ticker['symbol'] = ticker
         resampled_data.append(resampled_ticker)
     
+    # trim the data to the latest start and earliest end
+    for i in range(len(resampled_data)):
+        data = resampled_data[i]
+        resampled_data[i] = data.loc[latest_start:earliest_end]
+
     # Combine all resampled data
     result = pd.concat(resampled_data)
     # Set the multi-index
     result.set_index(['symbol', result.index], inplace=True)
+
     return result
 
 def resample_bars(bars:pd.DataFrame, time_frame:timedelta=timedelta(hours=1)) -> pd.DataFrame:
@@ -76,12 +93,12 @@ if __name__ == "__main__":
     # resample the bars. apply to each ticker
     bars = resample_multi_ticker_bars(bars)
     bars.info()
-    print(bars)
+    save_data(bars, 'utility_bars_resampled')
     close_prices = bars['close'].unstack(level=0) # get the close prices
     close_prices.info()
-    save_data(close_prices, 'utility_close_prices.csv') # save the close prices
+    save_data(close_prices, 'utility_close_prices') # save the close prices
 
     # calculate the log returns
     returns = close_prices.apply(lambda x: np.log(x / x.shift(1)))
     returns.info()
-    save_data(returns, 'utility_returns.csv')
+    save_data(returns, 'utility_returns')
