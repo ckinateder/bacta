@@ -1,6 +1,8 @@
 # Arby's
 
-A statistical arbitrage pairs trading bot prototype.
+Prototyping statistical arbitrage.
+
+![tickers](img/Utility-Spread.png)
 
 ## Stack
 - Python
