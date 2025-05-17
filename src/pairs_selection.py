@@ -11,11 +11,17 @@ from sklearn.decomposition import PCA
 from arch.unitroot.cointegration import engle_granger
 from statsmodels.tsa.stattools import adfuller
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 load_dotenv()
 
 ALPACA_API_KEY = os.getenv("ALPACA_API_KEY")
 ALPACA_API_SECRET = os.getenv("ALPACA_API_SECRET")
+
+plt.rcParams["figure.figsize"] = (15, 10)
+plt.rcParams["grid.linestyle"] = "--"
+plt.rcParams["grid.alpha"] = 0.7
+plt.rcParams["axes.grid"] = True
 
 
 def resample_multi_ticker_bars(
@@ -135,10 +141,8 @@ if __name__ == "__main__":
     """
     returns = pd.read_pickle("data/utility_returns.pkl")
     close_prices = pd.read_pickle("data/utility_close_prices.pkl")
-    plot_price_data(
-        close_prices, "Utility Price Data"
-    )  # [["NEE", "EXC", "D", "PCG", "XEL"]])
-    plt_show()
+    plot_price_data(close_prices, "Utility Price Data")
+    plt_show(prefix="utility_price_data")
 
     # PCA
     pca = PCA()
@@ -150,37 +154,85 @@ if __name__ == "__main__":
     plt.title("Ratio of Explained Variance")
     plt.xlabel("Principle Component #")
     plt.ylabel("%")
-    plt_show()
+    plt_show(prefix="pca_explained_variance")
 
+    # most important component
     first_component = pca.components_[0, :]
-    highest = utility_tickers[abs(first_component).argmax()]
-    lowest = utility_tickers[abs(first_component).argmin()]
+    fig, axes = plt.subplots(2, 2, figsize=(20, 15))
+    axes = axes.flatten()
+
+    for i in range(4):
+        component = pca.components_[i, :]
+        axes[i].bar(utility_tickers, component)
+        axes[i].set_title(f"Weightings of each asset in component {i+1}")
+        axes[i].set_xlabel("Assets")
+        axes[i].set_ylabel("Weighting")
+        axes[i].tick_params(axis="x", rotation=30)
+
+    plt.tight_layout()
+    plt_show(prefix="pca_components")
+
+    # calculate the cointegration results
+    cointegration_results = pd.DataFrame(index=utility_tickers, columns=utility_tickers)
+    for ticker1 in utility_tickers:
+        for ticker2 in utility_tickers:
+            if ticker1 == ticker2:
+                cointegration_results.loc[ticker1, ticker2] = 1
+            elif cointegration_results.loc[ticker2, ticker1] is not np.nan:
+                continue
+            else:
+                log_prices = np.log(close_prices[[ticker1, ticker2]])
+                coint_result = engle_granger(
+                    log_prices.iloc[:, 0], log_prices.iloc[:, 1], trend="c", lags=0
+                )
+                # print(coint_result)
+                coint_vector = coint_result.cointegrating_vector[:2]
+                spread = log_prices @ coint_vector
+
+                pvalue = adfuller(spread, maxlag=0)[1]
+                # print(
+                #    f"The ADF test p-value is {pvalue}, so it is {'' if pvalue < 0.05 else 'not '}stationary."
+                # )
+                cointegration_results.loc[ticker1, ticker2] = pvalue
+                cointegration_results.loc[ticker2, ticker1] = pvalue
+
+    # print the spreads
+    print(cointegration_results)
+
+    # show the cointegration results as a heatmap
+    plt.figure(figsize=(15, 10))
+    sns.heatmap(
+        cointegration_results.values.astype(np.float32),
+        annot=True,
+        cmap="YlGnBu",
+        fmt=".2f",
+    )
+    plt.grid(False)
+    plt.title("Cointegration Results")
+    plt.xlabel("Ticker")
+    plt.ylabel("Ticker")
+    plt_show(prefix="cointegration_results")
+
+    # find the pair with the lowest p-value
+    lowest_pvalue = cointegration_results.min().min()
+    print(f"The lowest p-value is {lowest_pvalue}")
+
+    lowest_pair = list(cointegration_results.stack().sort_values().head(1).index)[0]
     print(
-        f"The highest-absolute-weighing asset: {highest}\nThe lowest-absolute-weighing asset: {lowest}"
+        f"The pair with the lowest p-value is {lowest_pair} with p-value {lowest_pvalue}"
     )
 
-    plt.figure(figsize=(15, 10))
-    plt.bar(utility_tickers, first_component)
-    plt.title("Weightings of each asset in the first component")
-    plt.xlabel("Assets")
-    plt.ylabel("Weighting")
-    plt.xticks(rotation=30)
-    plt_show()
-
-    log_prices = np.log(close_prices[[highest, lowest]])
+    # plot the spread of the lowest pair
+    ticker1, ticker2 = lowest_pair
+    log_prices = np.log(close_prices[[ticker1, ticker2]])
     coint_result = engle_granger(
         log_prices.iloc[:, 0], log_prices.iloc[:, 1], trend="c", lags=0
     )
-    print(coint_result)
     coint_vector = coint_result.cointegrating_vector[:2]
+
     spread = log_prices @ coint_vector
-
-    pvalue = adfuller(spread, maxlag=0)[1]
-    print(
-        f"The ADF test p-value is {pvalue}, so it is {'' if pvalue < 0.05 else 'not '}stationary."
-    )
-
-    spread.plot(figsize=(15, 10), title=f"Spread of {highest} and {lowest}")
+    spread.plot(figsize=(15, 10), title=f"Spread of {ticker1} and {ticker2}")
     plt.ylabel("Spread")
-
-    plt_show()
+    plt.xlabel("Date")
+    plt.grid(True, linestyle="--", alpha=0.7)
+    plt_show(prefix="spread")

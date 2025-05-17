@@ -4,23 +4,26 @@ import json
 from names import SEC_TICKERS_FILENAME
 from dotenv import load_dotenv
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 load_dotenv()
 
 PLT_CNTR = 0
 
 
-def plt_show(prefix: str = "plt"):
+def plt_show(prefix: str = "plt", folder: str = "plots"):
     global PLT_CNTR
     plt.show()
     PLT_CNTR += 1
-    plt.savefig(f"{prefix}_{PLT_CNTR}.png", dpi=300)
+    plt.savefig(os.path.join(folder, f"{prefix}_{PLT_CNTR}.png"), dpi=300)
     plt.close()
 
 
 def plot_price_data(df: pd.DataFrame, title: str = None, figsize: tuple = (15, 10)):
     """Plot the price data."""
     plt.figure(figsize=figsize)
+    NUM_COLORS = len(df.columns)
+    COLORS = sns.color_palette("husl", NUM_COLORS)
 
     # also plot the eps data on its own y axis
     plt.xticks(
@@ -32,7 +35,8 @@ def plot_price_data(df: pd.DataFrame, title: str = None, figsize: tuple = (15, 1
     plt.ylabel("Price")
     plt.title(title)
     plt.grid(True, linestyle="--", alpha=0.7)
-    plt.plot(df)
+    for i, column in enumerate(df.columns):
+        plt.plot(df[column], color=COLORS[i], label=column)
     # legend, columns
     plt.legend(df.columns, loc="upper left", ncol=len(df.columns) // 4 + 1)
 
