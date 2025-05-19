@@ -243,30 +243,36 @@ if __name__ == "__main__":
     for lowest_pair in lowest_pairs:
         ticker1, ticker2 = lowest_pair
         prices = close_prices[[ticker1, ticker2]]  # .iloc[-1000:]
-        spread = prices.iloc[:, 0] - prices.iloc[:, 1]
+        # spread = prices.iloc[:, 0] - prices.iloc[:, 1]
 
-        # normalized_prices = close_prices[[ticker1, ticker2]].apply(
-        #    lambda x: (x / x.mean())
-        # )
-        # normalized_spread = normalized_prices.iloc[:, 0] - normalized_prices.iloc[:, 1]
+        normalized_prices = close_prices[[ticker1, ticker2]].apply(
+            lambda x: (x / x.mean())
+        )
+        normalized_spread = normalized_prices.iloc[:, 0] - normalized_prices.iloc[:, 1]
 
         # make bands
         rolling_window = 8  # This is used for determining how many days ahead to use to calculate the rolling mean
         std_multiplier = 1
-        rolling_mean = (spread.rolling(window=rolling_window).mean()).dropna()
-        rolling_std = (spread.rolling(window=rolling_window).std()).dropna()
+        rolling_mean = (
+            normalized_spread.rolling(window=rolling_window).mean()
+        ).dropna()
+        rolling_std = (normalized_spread.rolling(window=rolling_window).std()).dropna()
         upper_band = rolling_mean + (rolling_std * std_multiplier)
         lower_band = rolling_mean - (rolling_std * std_multiplier)
 
         # fix the bands and rollings to be the same length as the spread
-        rolling_mean = rolling_mean.reindex(spread.index)
-        upper_band = upper_band.reindex(spread.index)
-        lower_band = lower_band.reindex(spread.index)
+        rolling_mean = rolling_mean.reindex(normalized_spread.index)
+        upper_band = upper_band.reindex(normalized_spread.index)
+        lower_band = lower_band.reindex(normalized_spread.index)
 
         # make a series where the value is 1 if the spread is above the upper band and -1 if it is below the lower band
         position = pd.Series(
-            np.where(spread > upper_band, 1, np.where(spread < lower_band, -1, 0)),
-            index=spread.index,
+            np.where(
+                normalized_spread > upper_band,
+                1,
+                np.where(normalized_spread < lower_band, -1, 0),
+            ),
+            index=normalized_spread.index,
         )
 
         # Create figure with three subplots
@@ -275,7 +281,9 @@ if __name__ == "__main__":
         )
 
         # Plot spread in the largest subplot
-        spread.plot(ax=ax1, title=f"Spread of {ticker1} and {ticker2}")
+        normalized_spread.plot(
+            ax=ax1, title=f"Normalized Spread of {ticker1} and {ticker2}"
+        )
         rolling_mean.plot(
             ax=ax1, label="Rolling Mean", color="red", linewidth=0.5, alpha=0.8
         )
@@ -285,7 +293,7 @@ if __name__ == "__main__":
         lower_band.plot(
             ax=ax1, label="Lower Band", color="green", linewidth=0.5, alpha=0.8
         )
-        ax1.set_ylabel("Spread ($)")
+        ax1.set_ylabel("Quantity")
         ax1.set_xlabel("")
         ax1.grid(True, linestyle="--", alpha=0.7)
         ax1.legend()
