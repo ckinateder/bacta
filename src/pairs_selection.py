@@ -182,14 +182,20 @@ if __name__ == "__main__":
                 ticker2, ticker1
             ]
             continue
-        log_prices = np.log(close_prices[[ticker1, ticker2]])
+        normalized_prices = close_prices[[ticker1, ticker2]].apply(
+            lambda x: (x / x.mean())
+        )
+
         coint_result = engle_granger(
-            log_prices.iloc[:, 0], log_prices.iloc[:, 1], trend="c", lags=0
+            normalized_prices.iloc[:, 0],
+            normalized_prices.iloc[:, 1],
+            trend="c",
+            lags=0,
         )
         coint_pvalue = coint_result.pvalue
         coint_vector = coint_result.cointegrating_vector[:2]
-        spread = log_prices @ coint_vector
-        spread = log_prices.iloc[:, 0] - log_prices.iloc[:, 1]
+
+        spread = normalized_prices.iloc[:, 0] - normalized_prices.iloc[:, 1]
 
         spread_pvalue = adfuller(spread, maxlag=0)[1]
         if spread_pvalue < 0.05:
@@ -216,6 +222,9 @@ if __name__ == "__main__":
     plt.title("Cointegration Results")
     plt.xlabel("Ticker")
     plt.ylabel("Ticker")
+    # add ticker labels
+    plt.xticks(np.arange(len(utility_tickers)) + 0.5, utility_tickers, rotation=30)
+    plt.yticks(np.arange(len(utility_tickers)) + 0.5, utility_tickers, rotation=0)
     plt_show(prefix="cointegration_results")
 
     # find the pair with the lowest p-value
@@ -235,6 +244,12 @@ if __name__ == "__main__":
         ticker1, ticker2 = lowest_pair
         prices = close_prices[[ticker1, ticker2]]  # .iloc[-1000:]
         spread = prices.iloc[:, 0] - prices.iloc[:, 1]
+
+        # normalized_prices = close_prices[[ticker1, ticker2]].apply(
+        #    lambda x: (x / x.mean())
+        # )
+        # normalized_spread = normalized_prices.iloc[:, 0] - normalized_prices.iloc[:, 1]
+
         # make bands
         rolling_window = 8  # This is used for determining how many days ahead to use to calculate the rolling mean
         std_multiplier = 1
@@ -277,8 +292,8 @@ if __name__ == "__main__":
         ax1.tick_params(axis="x", which="both", bottom=False, labelbottom=False)
 
         # Plot spread direction in the middle subplot
-        position.plot(ax=ax2, title=f"Position of {ticker1} and {ticker2}")
-        ax2.set_ylabel("Direction")
+        position.plot(ax=ax2, title=f"Signal of {ticker1} and {ticker2}")
+        ax2.set_ylabel("Signal")
         ax2.set_xlabel("")
         ax2.grid(True, linestyle="--", alpha=0.7)
         ax2.tick_params(axis="x", which="both", bottom=False, labelbottom=False)
