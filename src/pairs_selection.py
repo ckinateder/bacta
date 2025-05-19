@@ -9,9 +9,10 @@ from datetime import datetime, timedelta
 from util import save_data, plt_show, plot_price_data
 from sklearn.decomposition import PCA
 from arch.unitroot.cointegration import engle_granger
-from statsmodels.tsa.stattools import adfuller
+from statsmodels.tsa.stattools import adfuller, coint
 import matplotlib.pyplot as plt
 import seaborn as sns
+from itertools import combinations
 
 load_dotenv()
 
@@ -116,8 +117,8 @@ if __name__ == "__main__":
     )
 
     # Get the utility bars
-    start_date = datetime(2023, 5, 1)
-    end_date = datetime.today()
+    start_date = datetime(2023, 1, 1)
+    end_date = datetime.today() - timedelta(minutes=15)
     request_params = StockBarsRequest(
         symbol_or_symbols=utility_tickers,
         timeframe=TimeFrame.Hour,
@@ -125,20 +126,21 @@ if __name__ == "__main__":
         end=end_date,
         adjustment="all",
     )
-    """
-    bars = client.get_stock_bars(request_params).df # get the bars
-    save_data(bars, 'utility_bars.csv') # save the bars
-    bars = pd.read_pickle("data/utility_bars.pkl")  # load the bars
-    # resample the bars. apply to each ticker
-    bars = resample_multi_ticker_bars(bars)
-    save_data(bars, "utility_bars_resampled")
-    close_prices = bars["close"].unstack(level=0)  # get the close prices
-    save_data(close_prices, "utility_close_prices")  # save the close prices
+    refresh_bars = False
+    if refresh_bars:
+        bars = client.get_stock_bars(request_params).df  # get the bars
+        save_data(bars, "utility_bars")  # save the bars
+        bars = pd.read_pickle("data/utility_bars.pkl")  # load the bars
+        # resample the bars. apply to each ticker
+        bars = resample_multi_ticker_bars(bars)
+        save_data(bars, "utility_bars_resampled")
+        close_prices = bars["close"].unstack(level=0)  # get the close prices
+        save_data(close_prices, "utility_close_prices")  # save the close prices
 
-    # calculate the log returns
-    returns = close_prices.apply(lambda x: np.log(x / x.shift(1))).iloc[1:]
-    save_data(returns, "utility_returns")
-    """
+        # calculate the log returns
+        returns = close_prices.apply(lambda x: np.log(x / x.shift(1))).iloc[1:]
+        save_data(returns, "utility_returns")
+
     returns = pd.read_pickle("data/utility_returns.pkl")
     close_prices = pd.read_pickle("data/utility_close_prices.pkl")
     plot_price_data(close_prices, "Utility Price Data")
@@ -174,27 +176,30 @@ if __name__ == "__main__":
 
     # calculate the cointegration results
     cointegration_results = pd.DataFrame(index=utility_tickers, columns=utility_tickers)
-    for ticker1 in utility_tickers:
-        for ticker2 in utility_tickers:
-            if ticker1 == ticker2:
-                cointegration_results.loc[ticker1, ticker2] = 1
-            elif cointegration_results.loc[ticker2, ticker1] is not np.nan:
-                continue
-            else:
-                log_prices = np.log(close_prices[[ticker1, ticker2]])
-                coint_result = engle_granger(
-                    log_prices.iloc[:, 0], log_prices.iloc[:, 1], trend="c", lags=0
-                )
-                # print(coint_result)
-                coint_vector = coint_result.cointegrating_vector[:2]
-                spread = log_prices @ coint_vector
+    for ticker1, ticker2 in combinations(utility_tickers, 2):
+        if cointegration_results.loc[ticker2, ticker1] is not np.nan:
+            cointegration_results.loc[ticker1, ticker2] = cointegration_results.loc[
+                ticker2, ticker1
+            ]
+            continue
+        log_prices = np.log(close_prices[[ticker1, ticker2]])
+        coint_result = engle_granger(
+            log_prices.iloc[:, 0], log_prices.iloc[:, 1], trend="c", lags=0
+        )
+        coint_pvalue = coint_result.pvalue
+        coint_vector = coint_result.cointegrating_vector[:2]
+        spread = log_prices @ coint_vector
+        spread = log_prices.iloc[:, 0] - log_prices.iloc[:, 1]
 
-                pvalue = adfuller(spread, maxlag=0)[1]
-                # print(
-                #    f"The ADF test p-value is {pvalue}, so it is {'' if pvalue < 0.05 else 'not '}stationary."
-                # )
-                cointegration_results.loc[ticker1, ticker2] = pvalue
-                cointegration_results.loc[ticker2, ticker1] = pvalue
+        spread_pvalue = adfuller(spread, maxlag=0)[1]
+        if spread_pvalue < 0.05:
+            print(coint_result)
+            print(
+                f"The ADF test for {ticker1}-{ticker2} p-value is {spread_pvalue}, so it is {'' if spread_pvalue < 0.05 else 'not '}stationary."
+            )
+
+        cointegration_results.loc[ticker1, ticker2] = spread_pvalue
+        cointegration_results.loc[ticker2, ticker1] = spread_pvalue
 
     # print the spreads
     print(cointegration_results)
@@ -217,22 +222,72 @@ if __name__ == "__main__":
     lowest_pvalue = cointegration_results.min().min()
     print(f"The lowest p-value is {lowest_pvalue}")
 
-    lowest_pair = list(cointegration_results.stack().sort_values().head(1).index)[0]
-    print(
-        f"The pair with the lowest p-value is {lowest_pair} with p-value {lowest_pvalue}"
-    )
+    lowest_pairs = list(cointegration_results.stack().sort_values().head(20).index)
+    # remove duplicate pairs; order of each pair is not important
+    lowest_pairs = list(set([tuple(sorted(pair)) for pair in lowest_pairs]))
+    for lowest_pair in lowest_pairs:
+        print(
+            f"The pair with the lowest p-value is {lowest_pair} with p-value {lowest_pvalue}"
+        )
 
     # plot the spread of the lowest pair
-    ticker1, ticker2 = lowest_pair
-    log_prices = np.log(close_prices[[ticker1, ticker2]])
-    coint_result = engle_granger(
-        log_prices.iloc[:, 0], log_prices.iloc[:, 1], trend="c", lags=0
-    )
-    coint_vector = coint_result.cointegrating_vector[:2]
+    for lowest_pair in lowest_pairs:
+        ticker1, ticker2 = lowest_pair
+        prices = close_prices[[ticker1, ticker2]]  # .iloc[-1000:]
+        spread = prices.iloc[:, 0] - prices.iloc[:, 1]
+        # make bands
+        rolling_window = 8  # This is used for determining how many days ahead to use to calculate the rolling mean
+        std_multiplier = 1
+        rolling_mean = (spread.rolling(window=rolling_window).mean()).dropna()
+        rolling_std = (spread.rolling(window=rolling_window).std()).dropna()
+        upper_band = rolling_mean + (rolling_std * std_multiplier)
+        lower_band = rolling_mean - (rolling_std * std_multiplier)
 
-    spread = log_prices @ coint_vector
-    spread.plot(figsize=(15, 10), title=f"Spread of {ticker1} and {ticker2}")
-    plt.ylabel("Spread")
-    plt.xlabel("Date")
-    plt.grid(True, linestyle="--", alpha=0.7)
-    plt_show(prefix="spread")
+        # fix the bands and rollings to be the same length as the spread
+        rolling_mean = rolling_mean.reindex(spread.index)
+        upper_band = upper_band.reindex(spread.index)
+        lower_band = lower_band.reindex(spread.index)
+
+        # make a series where the value is 1 if the spread is above the upper band and -1 if it is below the lower band
+        position = pd.Series(
+            np.where(spread > upper_band, 1, np.where(spread < lower_band, -1, 0)),
+            index=spread.index,
+        )
+
+        # Create figure with three subplots
+        fig, (ax1, ax2, ax3) = plt.subplots(
+            3, 1, figsize=(15, 12), height_ratios=[2, 0.5, 1]
+        )
+
+        # Plot spread in the largest subplot
+        spread.plot(ax=ax1, title=f"Spread of {ticker1} and {ticker2}")
+        rolling_mean.plot(
+            ax=ax1, label="Rolling Mean", color="red", linewidth=0.5, alpha=0.8
+        )
+        upper_band.plot(
+            ax=ax1, label="Upper Band", color="green", linewidth=0.5, alpha=0.8
+        )
+        lower_band.plot(
+            ax=ax1, label="Lower Band", color="green", linewidth=0.5, alpha=0.8
+        )
+        ax1.set_ylabel("Spread ($)")
+        ax1.set_xlabel("")
+        ax1.grid(True, linestyle="--", alpha=0.7)
+        ax1.legend()
+        ax1.tick_params(axis="x", which="both", bottom=False, labelbottom=False)
+
+        # Plot spread direction in the middle subplot
+        position.plot(ax=ax2, title=f"Position of {ticker1} and {ticker2}")
+        ax2.set_ylabel("Direction")
+        ax2.set_xlabel("")
+        ax2.grid(True, linestyle="--", alpha=0.7)
+        ax2.tick_params(axis="x", which="both", bottom=False, labelbottom=False)
+
+        # Plot individual prices in the bottom subplot
+        prices.plot(ax=ax3, title=f"Price of {ticker1} and {ticker2} ($)")
+        ax3.set_ylabel("Price ($)")
+        ax3.set_xlabel("Date")
+        ax3.grid(True, linestyle="--", alpha=0.7)
+
+        plt.tight_layout()
+        plt_show(prefix=f"spread_and_prices_{ticker1}_{ticker2}")

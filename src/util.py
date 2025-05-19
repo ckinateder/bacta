@@ -11,11 +11,13 @@ load_dotenv()
 PLT_CNTR = 0
 
 
-def plt_show(prefix: str = "plt", folder: str = "plots"):
+def plt_show(prefix: str = "plt", folder: str = "plots", plt_cntr: bool = False):
     global PLT_CNTR
     plt.show()
     PLT_CNTR += 1
-    plt.savefig(os.path.join(folder, f"{prefix}_{PLT_CNTR}.png"), dpi=300)
+    plt.savefig(
+        os.path.join(folder, f"{prefix}{'_'+PLT_CNTR if plt_cntr else ''}.png"), dpi=300
+    )
     plt.close()
 
 
