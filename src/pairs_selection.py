@@ -119,9 +119,10 @@ if __name__ == "__main__":
     # Get the utility bars
     start_date = datetime(2023, 1, 1)
     end_date = datetime.today() - timedelta(minutes=15)
+    timeframe = TimeFrame.Hour
     request_params = StockBarsRequest(
         symbol_or_symbols=utility_tickers,
-        timeframe=TimeFrame.Hour,
+        timeframe=timeframe,
         start=start_date,
         end=end_date,
         adjustment="all",
@@ -182,21 +183,25 @@ if __name__ == "__main__":
                 ticker2, ticker1
             ]
             continue
+
+        # normalize the prices
         normalized_prices = close_prices[[ticker1, ticker2]].apply(
             lambda x: (x / x.mean())
         )
 
+        # calculate the cointegration results
         coint_result = engle_granger(
-            normalized_prices.iloc[:, 0],
-            normalized_prices.iloc[:, 1],
+            normalized_prices[ticker1],
+            normalized_prices[ticker2],
             trend="c",
             lags=0,
         )
         coint_pvalue = coint_result.pvalue
         coint_vector = coint_result.cointegrating_vector[:2]
 
-        spread = normalized_prices.iloc[:, 0] - normalized_prices.iloc[:, 1]
+        spread = normalized_prices[ticker1] - normalized_prices[ticker2]
 
+        # calculate how stationary the spread is
         spread_pvalue = adfuller(spread, maxlag=0)[1]
         if spread_pvalue < 0.05:
             print(coint_result)
@@ -234,21 +239,13 @@ if __name__ == "__main__":
     lowest_pairs = list(cointegration_results.stack().sort_values().head(20).index)
     # remove duplicate pairs; order of each pair is not important
     lowest_pairs = list(set([tuple(sorted(pair)) for pair in lowest_pairs]))
-    for lowest_pair in lowest_pairs:
-        print(
-            f"The pair with the lowest p-value is {lowest_pair} with p-value {lowest_pvalue}"
-        )
 
     # plot the spread of the lowest pair
     for lowest_pair in lowest_pairs:
         ticker1, ticker2 = lowest_pair
-        prices = close_prices[[ticker1, ticker2]]  # .iloc[-1000:]
-        # spread = prices.iloc[:, 0] - prices.iloc[:, 1]
-
-        normalized_prices = close_prices[[ticker1, ticker2]].apply(
-            lambda x: (x / x.mean())
-        )
-        normalized_spread = normalized_prices.iloc[:, 0] - normalized_prices.iloc[:, 1]
+        prices = close_prices[[ticker1, ticker2]].iloc[-1000:]
+        normalized_prices = prices.apply(lambda x: (x / x.mean()))
+        normalized_spread = normalized_prices[ticker1] - normalized_prices[ticker2]
 
         # make bands
         rolling_window = 8  # This is used for determining how many days ahead to use to calculate the rolling mean
@@ -274,6 +271,8 @@ if __name__ == "__main__":
             ),
             index=normalized_spread.index,
         )
+
+        # plotting
 
         # Create figure with three subplots
         fig, (ax1, ax2, ax3) = plt.subplots(
