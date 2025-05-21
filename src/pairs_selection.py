@@ -90,6 +90,56 @@ def resample_bars(
     return bars
 
 
+class PairSelector:
+    def __init__(self):
+        pass
+
+    def select_pairs(self, close_prices: pd.DataFrame, method: str = "spread_adf"):
+        if method == "spread_adf":
+            return self.select_pairs_by_spread_adf(close_prices)
+        else:
+            raise ValueError(f"Invalid method: {method}")
+
+    def select_pairs_by_spread_adf(self, close_prices: pd.DataFrame) -> dict:
+        """Given a set of close prices, select the pairs with the lowest spread.
+
+        Args:
+            close_prices (pd.DataFrame): A dataframe of close prices for the tickers.
+
+        Returns:
+            dict:
+        """
+        # check for equal spacing between the close prices
+        if not close_prices.index.is_unique:
+            raise ValueError("The close prices must have unique timestamps.")
+        if not close_prices.index.is_monotonic_increasing:
+            raise ValueError("The close prices must be monotonically increasing.")
+
+        # stationarity testing
+        tickers = close_prices.columns
+        stationarity_results = pd.DataFrame(index=tickers, columns=tickers)
+        for primary, secondary in combinations(tickers, 2):
+            if stationarity_results.loc[secondary, primary] is not np.nan:
+                stationarity_results.loc[primary, secondary] = stationarity_results.loc[
+                    secondary, primary
+                ]
+                continue
+
+            # normalize the prices amd calculate the spread
+            normalized_prices = close_prices[[primary, secondary]].apply(
+                lambda x: (x / x.mean())
+            )
+            spread = normalized_prices[primary] - normalized_prices[secondary]
+
+            # calculate how stationary the spread is
+            spread_pvalue = adfuller(spread, maxlag=0)[1]
+
+            stationarity_results.loc[primary, secondary] = spread_pvalue
+            stationarity_results.loc[secondary, primary] = spread_pvalue
+
+        return stationarity_results
+
+
 if __name__ == "__main__":
     utility_tickers = [
         "NEE",
@@ -111,6 +161,11 @@ if __name__ == "__main__":
         "LNT",
         "PNW",
         "IDA",
+        "AEP",
+        "DUK",
+        "SRE",
+        "ATO",
+        "NRG",
     ]
     client = StockHistoricalDataClient(
         api_key=ALPACA_API_KEY, secret_key=ALPACA_API_SECRET
@@ -127,7 +182,8 @@ if __name__ == "__main__":
         end=end_date,
         adjustment="all",
     )
-    refresh_bars = False
+
+    refresh_bars = True
     if refresh_bars:
         bars = client.get_stock_bars(request_params).df  # get the bars
         save_data(bars, "utility_bars")  # save the bars
@@ -175,42 +231,23 @@ if __name__ == "__main__":
     plt.tight_layout()
     plt_show(prefix="pca_components")
 
-    # calculate the cointegration results
-    cointegration_results = pd.DataFrame(index=utility_tickers, columns=utility_tickers)
-    for ticker1, ticker2 in combinations(utility_tickers, 2):
-        if cointegration_results.loc[ticker2, ticker1] is not np.nan:
-            cointegration_results.loc[ticker1, ticker2] = cointegration_results.loc[
-                ticker2, ticker1
-            ]
-            continue
-
-        # normalize the prices
-        normalized_prices = close_prices[[ticker1, ticker2]].apply(
-            lambda x: (x / x.mean())
-        )
-
-        # calculate the cointegration results
-        coint_result = engle_granger(
-            normalized_prices[ticker1],
-            normalized_prices[ticker2],
-            trend="c",
-            lags=0,
-        )
-        coint_pvalue = coint_result.pvalue
-        coint_vector = coint_result.cointegrating_vector[:2]
-
-        spread = normalized_prices[ticker1] - normalized_prices[ticker2]
-
-        # calculate how stationary the spread is
-        spread_pvalue = adfuller(spread, maxlag=0)[1]
-        if spread_pvalue < 0.05:
-            print(coint_result)
-            print(
-                f"The ADF test for {ticker1}-{ticker2} p-value is {spread_pvalue}, so it is {'' if spread_pvalue < 0.05 else 'not '}stationary."
-            )
-
-        cointegration_results.loc[ticker1, ticker2] = spread_pvalue
-        cointegration_results.loc[ticker2, ticker1] = spread_pvalue
+    highest_index = abs(first_component).argmax()
+    lowest_index = abs(first_component).argmin()
+    highest = utility_tickers[highest_index]
+    lowest = utility_tickers[lowest_index]
+    print("Using PCA to select the highest and lowest weighting assets:")
+    print(
+        f"The highest weighting is {highest} with a weighting of {first_component[highest_index]}"
+    )
+    print(
+        f"The lowest weighting is {lowest} with a weighting of {first_component[lowest_index]}"
+    )
+    print("--------------------------------")
+    print("Using Cointegration to select the pairs:")
+    pair_selector = PairSelector()
+    cointegration_results = pair_selector.select_pairs(
+        close_prices, method="spread_adf"
+    )
 
     # print the spreads
     print(cointegration_results)
@@ -239,13 +276,16 @@ if __name__ == "__main__":
     lowest_pairs = list(cointegration_results.stack().sort_values().head(20).index)
     # remove duplicate pairs; order of each pair is not important
     lowest_pairs = list(set([tuple(sorted(pair)) for pair in lowest_pairs]))
+    lowest_pairs += [
+        (lowest, highest)
+    ]  # add the highest and lowest weighting assets from PCA test
 
     # plot the spread of the lowest pair
     for lowest_pair in lowest_pairs:
-        ticker1, ticker2 = lowest_pair
-        prices = close_prices[[ticker1, ticker2]].iloc[-1000:]
+        primary, secondary = lowest_pair
+        prices = close_prices[[primary, secondary]]  # .iloc[-1000:]
         normalized_prices = prices.apply(lambda x: (x / x.mean()))
-        normalized_spread = normalized_prices[ticker1] - normalized_prices[ticker2]
+        normalized_spread = normalized_prices[primary] - normalized_prices[secondary]
 
         # make bands
         rolling_window = 8  # This is used for determining how many days ahead to use to calculate the rolling mean
@@ -281,7 +321,7 @@ if __name__ == "__main__":
 
         # Plot spread in the largest subplot
         normalized_spread.plot(
-            ax=ax1, title=f"Normalized Spread of {ticker1} and {ticker2}"
+            ax=ax1, title=f"Normalized Spread of {primary} and {secondary}"
         )
         rolling_mean.plot(
             ax=ax1, label="Rolling Mean", color="red", linewidth=0.5, alpha=0.8
@@ -299,17 +339,17 @@ if __name__ == "__main__":
         ax1.tick_params(axis="x", which="both", bottom=False, labelbottom=False)
 
         # Plot spread direction in the middle subplot
-        position.plot(ax=ax2, title=f"Signal of {ticker1} and {ticker2}")
+        position.plot(ax=ax2, title=f"Signal of {primary} and {secondary}")
         ax2.set_ylabel("Signal")
         ax2.set_xlabel("")
         ax2.grid(True, linestyle="--", alpha=0.7)
         ax2.tick_params(axis="x", which="both", bottom=False, labelbottom=False)
 
         # Plot individual prices in the bottom subplot
-        prices.plot(ax=ax3, title=f"Price of {ticker1} and {ticker2} ($)")
+        prices.plot(ax=ax3, title=f"Price of {primary} and {secondary} ($)")
         ax3.set_ylabel("Price ($)")
         ax3.set_xlabel("Date")
         ax3.grid(True, linestyle="--", alpha=0.7)
 
         plt.tight_layout()
-        plt_show(prefix=f"spread_and_prices_{ticker1}_{ticker2}")
+        plt_show(prefix=f"spread_and_prices_{primary}_{secondary}")
