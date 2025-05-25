@@ -5,6 +5,8 @@ from names import SEC_TICKERS_FILENAME
 from dotenv import load_dotenv
 import matplotlib.pyplot as plt
 import seaborn as sns
+from datetime import datetime, date
+import yfinance as yf
 
 load_dotenv()
 
@@ -66,12 +68,64 @@ def load_sec_tickers(data_dir: str = os.getenv("DATA_DIR")) -> pd.DataFrame:
     return df
 
 
-def save_data(df: pd.DataFrame, filename: str, data_dir: str = os.getenv("DATA_DIR")):
+def save_dataframe(
+    df: pd.DataFrame, filename: str, data_dir: str = os.getenv("DATA_DIR")
+):
     """Save the data to a CSV and pickle file."""
     path = os.path.join(data_dir, filename)
     df.to_csv(path + ".csv")
     df.to_pickle(path + ".pkl")
 
 
+def load_dataframe(
+    filename: str, data_dir: str = os.getenv("DATA_DIR")
+) -> pd.DataFrame:
+    """Load the data from a CSV and pickle file."""
+    path = os.path.join(data_dir, filename)
+    if os.path.exists(path + ".pkl"):
+        print(f"Loading {path + '.pkl'}")
+        return pd.read_pickle(path + ".pkl")
+    elif os.path.exists(path + ".csv"):
+        print(f"Loading {path + '.csv'}")
+        return pd.read_csv(path + ".csv")
+    raise FileNotFoundError(f"File {path} not found.")
+
+
+def save_json(data: dict, filename: str, data_dir: str = os.getenv("DATA_DIR")):
+    """Save the data to a JSON file."""
+    path = os.path.join(data_dir, filename)
+    with open(path + ".json", "w") as f:
+        json.dump(
+            data,
+            f,
+            indent=4,
+            default=lambda o: (
+                o.__str__() if isinstance(o, datetime) or isinstance(o, date) else None
+            ),
+        )
+
+
+def load_json(filename: str, data_dir: str = os.getenv("DATA_DIR")) -> dict:
+    """Load the data from a JSON file."""
+    path = os.path.join(data_dir, filename)
+    with open(path + ".json", "r") as f:
+        return json.load(f)
+
+
+def get_earnings_date(ticker: str) -> datetime.date:
+    """Get the next earnings date for a given ticker."""
+    stock = yf.Ticker(ticker)
+
+    # Fetch the calendar data, which includes upcoming events like the earnings date
+    try:
+        calendar = stock.calendar
+        earnings_date = calendar["Earnings Date"][0]
+        return earnings_date
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return None
+
+
 if __name__ == "__main__":
-    sec_tickers = load_sec_tickers()
+    # sec_tickers = load_sec_tickers()
+    print(get_earnings_date("AEP"))

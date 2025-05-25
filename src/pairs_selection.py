@@ -6,7 +6,15 @@ from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
 from datetime import datetime, timedelta
-from util import save_data, plt_show, plot_price_data
+from util import (
+    save_dataframe,
+    plt_show,
+    plot_price_data,
+    get_earnings_date,
+    load_dataframe,
+    save_json,
+    load_json,
+)
 from sklearn.decomposition import PCA
 from arch.unitroot.cointegration import engle_granger
 from statsmodels.tsa.stattools import adfuller, coint
@@ -167,6 +175,7 @@ if __name__ == "__main__":
         "ATO",
         "NRG",
     ]
+
     client = StockHistoricalDataClient(
         api_key=ALPACA_API_KEY, secret_key=ALPACA_API_SECRET
     )
@@ -183,27 +192,32 @@ if __name__ == "__main__":
         adjustment="all",
     )
 
-    refresh_bars = True
+    refresh_bars = False
     if refresh_bars:
         bars = client.get_stock_bars(request_params).df  # get the bars
-        save_data(bars, "utility_bars")  # save the bars
-        bars = pd.read_pickle("data/utility_bars.pkl")  # load the bars
+        save_dataframe(bars, "utility_bars")  # save the bars
+        bars = load_dataframe("utility_bars")  # load the bars
+
         # resample the bars. apply to each ticker
         bars = resample_multi_ticker_bars(bars)
-        save_data(bars, "utility_bars_resampled")
-        close_prices = bars["close"].unstack(level=0)  # get the close prices
-        save_data(close_prices, "utility_close_prices")  # save the close prices
+        save_dataframe(bars, "utility_bars_resampled")
 
-        # calculate the log returns
-        returns = close_prices.apply(lambda x: np.log(x / x.shift(1))).iloc[1:]
-        save_data(returns, "utility_returns")
+        # get the close prices
+        close_prices = bars["close"].unstack(level=0)
+        save_dataframe(close_prices, "utility_close_prices")  # save the close prices
 
-    returns = pd.read_pickle("data/utility_returns.pkl")
-    close_prices = pd.read_pickle("data/utility_close_prices.pkl")
+        earnings_dates = {
+            ticker: get_earnings_date(ticker) for ticker in utility_tickers
+        }
+        save_json(earnings_dates, "utility_earnings_dates")
+
+    close_prices = load_dataframe("utility_close_prices")
+    earnings_dates = load_json("utility_earnings_dates")
     plot_price_data(close_prices, "Utility Price Data")
     plt_show(prefix="utility_price_data")
 
     # PCA
+    returns = close_prices.apply(lambda x: np.log(x / x.shift(1))).iloc[1:]
     pca = PCA()
     pca.fit(returns)
     components = [str(x + 1) for x in range(pca.n_components_)]
