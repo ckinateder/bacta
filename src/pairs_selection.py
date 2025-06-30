@@ -16,7 +16,7 @@ from util import (
     load_json,
 )
 from sklearn.decomposition import PCA
-from arch.unitroot.cointegration import engle_granger
+#from arch.unitroot.cointegration import engle_granger
 from statsmodels.tsa.stattools import adfuller, coint
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -192,7 +192,7 @@ if __name__ == "__main__":
         adjustment="all",
     )
 
-    refresh_bars = False
+    refresh_bars = True
     if refresh_bars:
         bars = client.get_stock_bars(request_params).df  # get the bars
         save_dataframe(bars, "utility_bars")  # save the bars
