@@ -13,6 +13,14 @@ load_dotenv()
 PLT_CNTR = 0
 
 
+def dash(text: str = None):
+    """Print a dash line with text centered in the middle."""
+    terminal_width = os.get_terminal_size().columns
+    if text is None:
+        return "-" * terminal_width
+    else:
+        return "- " + text + " -" + ("-" * (terminal_width - len(text) - 4))
+
 def plt_show(prefix: str = "plt", folder: str = "plots", plt_cntr: bool = False):
     global PLT_CNTR
     plt.show()

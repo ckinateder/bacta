@@ -2,15 +2,7 @@ import pandas as pd
 import numpy as np
 from abc import abstractmethod
 from enum import Enum
-import os
-
-def dash(text: str = None):
-    """Print a dash line with text centered in the middle."""
-    terminal_width = os.get_terminal_size().columns
-    if text is None:
-        return "-" * terminal_width
-    else:
-        return "- " + text + " -" + ("-" * (terminal_width - len(text) - 4))
+from util import dash
 
 class Order(Enum):
     BUY = 1
@@ -40,6 +32,7 @@ class BasicBacktester:
 
     def _update_state(self, ticker: str, price: float, quantity: float, order: Order, index: pd.Timestamp, ffill: bool = True):
         """Update the state of the backtester.
+        Initial state is 0.
 
         Args:
             ticker (str): The ticker of the asset.

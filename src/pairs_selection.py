@@ -258,6 +258,7 @@ if __name__ == "__main__":
     )
     print("--------------------------------")
     print("Using Cointegration to select the pairs:")
+    
     pair_selector = PairSelector()
     cointegration_results = pair_selector.select_pairs(
         close_prices, method="spread_adf"
