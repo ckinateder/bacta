@@ -21,6 +21,9 @@ from statsmodels.tsa.stattools import adfuller, coint
 import matplotlib.pyplot as plt
 import seaborn as sns
 from itertools import combinations
+import pytz
+ept = pytz.timezone('US/Eastern')
+utc = pytz.utc
 
 load_dotenv()
 
@@ -198,6 +201,9 @@ if __name__ == "__main__":
         save_dataframe(bars, "utility_bars")  # save the bars
         bars = load_dataframe("utility_bars")  # load the bars
 
+        # convert all the dates to est. this is a multi-index dataframe, so we need to convert the index
+        bars.index = bars.index.map(lambda x: (x[0], x[1].astimezone(ept)))
+
         # resample the bars. apply to each ticker
         bars = resample_multi_ticker_bars(bars)
         save_dataframe(bars, "utility_bars_resampled")
@@ -215,6 +221,7 @@ if __name__ == "__main__":
     earnings_dates = load_json("utility_earnings_dates")
     plot_price_data(close_prices, "Utility Price Data")
     plt_show(prefix="utility_price_data")
+
 
     # PCA
     returns = close_prices.apply(lambda x: np.log(x / x.shift(1))).iloc[1:]
@@ -257,6 +264,8 @@ if __name__ == "__main__":
         f"The lowest weighting is {lowest} with a weighting of {first_component[lowest_index]}"
     )
     print("--------------------------------")
+
+    #########################################################
     print("Using Cointegration to select the pairs:")
     
     pair_selector = PairSelector()
@@ -298,7 +307,8 @@ if __name__ == "__main__":
     ]  # add the highest and lowest weighting assets from PCA test
 
     print(f"Plotting the spread of the lowest {len(lowest_pairs)} pairs")
-    # plot the spread of the lowest pair
+
+    # put bollinger bands 
     for lowest_pair in lowest_pairs:
         primary, secondary = lowest_pair
         prices = close_prices[[primary, secondary]]  # .iloc[-1000:]
@@ -330,7 +340,8 @@ if __name__ == "__main__":
             index=normalized_spread.index,
         )
 
-        # plotting
+    # plotting
+    for lowest_pair in lowest_pairs:
 
         # Create figure with three subplots
         fig, (ax1, ax2, ax3) = plt.subplots(
@@ -368,6 +379,6 @@ if __name__ == "__main__":
         ax3.set_ylabel("Price ($)")
         ax3.set_xlabel("Date")
         ax3.grid(True, linestyle="--", alpha=0.7)
-
+                
         plt.tight_layout()
         plt_show(prefix=f"spread_and_prices_{primary}_{secondary}")

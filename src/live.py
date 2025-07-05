@@ -205,6 +205,7 @@ if __name__ == "__main__":
     pair = ["CMS", "NEE"]
     # Example with custom 12-hour window
     streamer = LivePairs(pair, window_hours=12)
+    print("Created streamer tracking", pair)
 
     try:
         streamer.start_stream()
