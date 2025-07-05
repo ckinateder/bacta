@@ -16,11 +16,12 @@ from util import (
     load_json,
 )
 from sklearn.decomposition import PCA
-#from arch.unitroot.cointegration import engle_granger
+# from arch.unitroot.cointegration import engle_granger
 from statsmodels.tsa.stattools import adfuller, coint
 import matplotlib.pyplot as plt
 import seaborn as sns
 from itertools import combinations
+from __init__ import Position
 import pytz
 ept = pytz.timezone('US/Eastern')
 utc = pytz.utc
@@ -124,7 +125,8 @@ class PairSelector:
         if not close_prices.index.is_unique:
             raise ValueError("The close prices must have unique timestamps.")
         if not close_prices.index.is_monotonic_increasing:
-            raise ValueError("The close prices must be monotonically increasing.")
+            raise ValueError(
+                "The close prices must be monotonically increasing.")
 
         # stationarity testing
         tickers = close_prices.columns
@@ -150,6 +152,7 @@ class PairSelector:
 
         return stationarity_results
 
+
 class BarUtils:
     def __init__(self):
         pass
@@ -167,7 +170,8 @@ class BarUtils:
             raise ValueError("The prices must have two tickers.")
         primary, secondary = prices.columns
         normalized_prices = prices.apply(lambda x: (x / x.mean()))
-        normalized_spread = normalized_prices[primary] - normalized_prices[secondary]
+        normalized_spread = normalized_prices[primary] - \
+            normalized_prices[secondary]
         return normalized_spread
 
     @staticmethod
@@ -185,15 +189,16 @@ class BarUtils:
                 - rolling_mean: The rolling mean of the normalized spread
                 - upper_band: The upper band of the normalized spread
                 - lower_band: The lower band of the normalized spread
-                - position: The position of the normalized spread
         """
         # make bands
-        rolling_window = 8  # This is used for determining how many days ahead to use to calculate the rolling mean
+        # This is used for determining how many days ahead to use to calculate the rolling mean
+        rolling_window = 8
         std_multiplier = 1
         rolling_mean = (
             normalized_spread.rolling(window=rolling_window).mean()
         ).dropna()
-        rolling_std = (normalized_spread.rolling(window=rolling_window).std()).dropna()
+        rolling_std = (normalized_spread.rolling(
+            window=rolling_window).std()).dropna()
         upper_band = rolling_mean + (rolling_std * std_multiplier)
         lower_band = rolling_mean - (rolling_std * std_multiplier)
 
@@ -202,23 +207,14 @@ class BarUtils:
         upper_band = upper_band.reindex(normalized_spread.index)
         lower_band = lower_band.reindex(normalized_spread.index)
 
-        # make a series where the value is 1 if the spread is above the upper band and -1 if it is below the lower band
-        position = pd.Series(
-            np.where(
-                normalized_spread > upper_band,
-                1,
-                np.where(normalized_spread < lower_band, -1, 0),
-            ),
-            index=normalized_spread.index,
-        )
-
-        output = pd.DataFrame(index=normalized_spread.index, columns=["normalized_spread", "rolling_mean", "upper_band", "lower_band", "position"])
+        output = pd.DataFrame(index=normalized_spread.index, columns=[
+                              "normalized_spread", "rolling_mean", "upper_band", "lower_band"])
         output["normalized_spread"] = normalized_spread
         output["rolling_mean"] = rolling_mean
         output["upper_band"] = upper_band
         output["lower_band"] = lower_band
-        output["position"] = position
         return output
+
 
 if __name__ == "__main__":
     utility_tickers = [
@@ -279,7 +275,8 @@ if __name__ == "__main__":
 
         # get the close prices
         close_prices = bars["close"].unstack(level=0)
-        save_dataframe(close_prices, "utility_close_prices")  # save the close prices
+        # save the close prices
+        save_dataframe(close_prices, "utility_close_prices")
 
         earnings_dates = {
             ticker: get_earnings_date(ticker) for ticker in utility_tickers
@@ -336,7 +333,7 @@ if __name__ == "__main__":
 
     #########################################################
     print("Using Cointegration to select the pairs:")
-    
+
     pair_selector = PairSelector()
     cointegration_results = pair_selector.select_pairs(
         close_prices, method="spread_adf"
@@ -358,8 +355,10 @@ if __name__ == "__main__":
     plt.xlabel("Ticker")
     plt.ylabel("Ticker")
     # add ticker labels
-    plt.xticks(np.arange(len(utility_tickers)) + 0.5, utility_tickers, rotation=30)
-    plt.yticks(np.arange(len(utility_tickers)) + 0.5, utility_tickers, rotation=0)
+    plt.xticks(np.arange(len(utility_tickers)) +
+               0.5, utility_tickers, rotation=30)
+    plt.yticks(np.arange(len(utility_tickers)) +
+               0.5, utility_tickers, rotation=0)
     plt_show(prefix="cointegration_results")
 
     # find the pair with the lowest p-value
@@ -367,7 +366,8 @@ if __name__ == "__main__":
     print(f"The lowest p-value from cointegration is {lowest_pvalue}")
 
     # remove duplicaets
-    lowest_pairs = list(cointegration_results.stack().sort_values().head(10).index)
+    lowest_pairs = list(
+        cointegration_results.stack().sort_values().head(10).index)
 
     # remove duplicate pairs; order of each pair is not important
     lowest_pairs = list(set([tuple(sorted(pair)) for pair in lowest_pairs]))
@@ -375,14 +375,15 @@ if __name__ == "__main__":
         (lowest, highest)
     ]  # add the highest and lowest weighting assets from PCA test
 
-
-    # put bollinger bands 
+    # put bollinger bands
     print("Putting bollinger bands on the lowest pairs")
     for lowest_pair in lowest_pairs:
         primary, secondary = lowest_pair
         prices = close_prices[[primary, secondary]]  # .iloc[-1000:]
         normalized_spread = BarUtils.put_normalized_spread(prices)
         bands = BarUtils.put_bollinger_bands(normalized_spread)
+        bands["position"] = np.where(normalized_spread > bands["upper_band"], Position.LONG.value, np.where(
+            normalized_spread < bands["lower_band"], Position.SHORT.value, Position.NEUTRAL.value))
 
         # Create figure with three subplots
         fig, (ax1, ax2, ax3) = plt.subplots(
@@ -398,7 +399,7 @@ if __name__ == "__main__":
         normalized_spread.plot(
             ax=ax1, title=f"Normalized Spread of {primary} and {secondary}"
         )
-        rolling_mean.plot( 
+        rolling_mean.plot(
             ax=ax1, label="Rolling Mean", color="red", linewidth=0.5, alpha=0.8
         )
         upper_band.plot(
@@ -411,20 +412,22 @@ if __name__ == "__main__":
         ax1.set_xlabel("")
         ax1.grid(True, linestyle="--", alpha=0.7)
         ax1.legend()
-        ax1.tick_params(axis="x", which="both", bottom=False, labelbottom=False)
+        ax1.tick_params(axis="x", which="both",
+                        bottom=False, labelbottom=False)
 
         # Plot spread direction in the middle subplot
         position.plot(ax=ax2, title=f"Signal of {primary} and {secondary}")
         ax2.set_ylabel("Signal")
         ax2.set_xlabel("")
         ax2.grid(True, linestyle="--", alpha=0.7)
-        ax2.tick_params(axis="x", which="both", bottom=False, labelbottom=False)
+        ax2.tick_params(axis="x", which="both",
+                        bottom=False, labelbottom=False)
 
         # Plot individual prices in the bottom subplot
         prices.plot(ax=ax3, title=f"Price of {primary} and {secondary} ($)")
         ax3.set_ylabel("Price ($)")
         ax3.set_xlabel("Date")
         ax3.grid(True, linestyle="--", alpha=0.7)
-                
+
         plt.tight_layout()
         plt_show(prefix=f"spread_and_prices_{primary}_{secondary}")

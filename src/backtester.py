@@ -3,10 +3,8 @@ import numpy as np
 from abc import abstractmethod
 from enum import Enum
 from util import dash
-
-class Order(Enum):
-    BUY = 1
-    SELL = -1
+from __init__ import Order
+from __init__ import Position
 
 class BasicBacktester:
     """
