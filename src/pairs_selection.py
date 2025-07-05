@@ -155,7 +155,38 @@ class BarUtils:
         pass
 
     @staticmethod
-    def put_bollinger_bands(normalized_spread: pd.DataFrame, rolling_window: int = 8, std_multiplier: float = 1):
+    def put_normalized_spread(prices: pd.DataFrame) -> pd.DataFrame:
+        """Put the normalized spread on the prices. 
+        Args:
+            prices (pd.DataFrame): A dataframe of TWO tickers.
+
+        Returns:
+            pd.DataFrame: A dataframe with the normalized spread.
+        """
+        if len(prices.columns) != 2:
+            raise ValueError("The prices must have two tickers.")
+        primary, secondary = prices.columns
+        normalized_prices = prices.apply(lambda x: (x / x.mean()))
+        normalized_spread = normalized_prices[primary] - normalized_prices[secondary]
+        return normalized_spread
+
+    @staticmethod
+    def put_bollinger_bands(normalized_spread: pd.DataFrame, rolling_window: int = 8, std_multiplier: float = 1) -> pd.DataFrame:
+        """Put bollinger bands on the normalized spread.
+
+        Args:
+            normalized_spread (pd.DataFrame): _description_
+            rolling_window (int, optional): _description_. Defaults to 8.
+            std_multiplier (float, optional): _description_. Defaults to 1.
+
+        Returns:
+            pd.DataFrame: A dataframe with the bollinger bands and position. Columns are:
+                - normalized_spread: The normalized spread
+                - rolling_mean: The rolling mean of the normalized spread
+                - upper_band: The upper band of the normalized spread
+                - lower_band: The lower band of the normalized spread
+                - position: The position of the normalized spread
+        """
         # make bands
         rolling_window = 8  # This is used for determining how many days ahead to use to calculate the rolling mean
         std_multiplier = 1
@@ -180,6 +211,14 @@ class BarUtils:
             ),
             index=normalized_spread.index,
         )
+
+        output = pd.DataFrame(index=normalized_spread.index, columns=["normalized_spread", "rolling_mean", "upper_band", "lower_band", "position"])
+        output["normalized_spread"] = normalized_spread
+        output["rolling_mean"] = rolling_mean
+        output["upper_band"] = upper_band
+        output["lower_band"] = lower_band
+        output["position"] = position
+        return output
 
 if __name__ == "__main__":
     utility_tickers = [
@@ -339,59 +378,23 @@ if __name__ == "__main__":
 
     # put bollinger bands 
     print("Putting bollinger bands on the lowest pairs")
-    bands = {}
     for lowest_pair in lowest_pairs:
         primary, secondary = lowest_pair
         prices = close_prices[[primary, secondary]]  # .iloc[-1000:]
-        normalized_prices = prices.apply(lambda x: (x / x.mean()))
-        normalized_spread = normalized_prices[primary] - normalized_prices[secondary]
+        normalized_spread = BarUtils.put_normalized_spread(prices)
+        bands = BarUtils.put_bollinger_bands(normalized_spread)
 
-        # make bands
-        rolling_window = 8  # This is used for determining how many days ahead to use to calculate the rolling mean
-        std_multiplier = 1
-        rolling_mean = (
-            normalized_spread.rolling(window=rolling_window).mean()
-        ).dropna()
-        rolling_std = (normalized_spread.rolling(window=rolling_window).std()).dropna()
-        upper_band = rolling_mean + (rolling_std * std_multiplier)
-        lower_band = rolling_mean - (rolling_std * std_multiplier)
-
-        # fix the bands and rollings to be the same length as the spread
-        rolling_mean = rolling_mean.reindex(normalized_spread.index)
-        upper_band = upper_band.reindex(normalized_spread.index)
-        lower_band = lower_band.reindex(normalized_spread.index)
-
-        # make a series where the value is 1 if the spread is above the upper band and -1 if it is below the lower band
-        position = pd.Series(
-            np.where(
-                normalized_spread > upper_band,
-                1,
-                np.where(normalized_spread < lower_band, -1, 0),
-            ),
-            index=normalized_spread.index,
-        )
-        bands[lowest_pair] = {
-            "rolling_mean": rolling_mean,
-            "upper_band": upper_band,
-            "lower_band": lower_band,
-            "position": position,
-            "normalized_spread": normalized_spread,
-        }
-
-    # plotting
-    print(f"Plotting the spread of the lowest {len(lowest_pairs)} pairs")
-    for lowest_pair in lowest_pairs:
-        primary, secondary = lowest_pair
         # Create figure with three subplots
         fig, (ax1, ax2, ax3) = plt.subplots(
             3, 1, figsize=(15, 12), height_ratios=[2, 0.5, 1]
         )
 
         # Plot spread in the largest subplot
-        rolling_mean = bands[lowest_pair]["rolling_mean"]
-        upper_band = bands[lowest_pair]["upper_band"]
-        lower_band = bands[lowest_pair]["lower_band"]
-        normalized_spread = bands[lowest_pair]["normalized_spread"]
+        rolling_mean = bands["rolling_mean"]
+        upper_band = bands["upper_band"]
+        lower_band = bands["lower_band"]
+        normalized_spread = bands["normalized_spread"]
+        position = bands["position"]
         normalized_spread.plot(
             ax=ax1, title=f"Normalized Spread of {primary} and {secondary}"
         )
@@ -411,7 +414,6 @@ if __name__ == "__main__":
         ax1.tick_params(axis="x", which="both", bottom=False, labelbottom=False)
 
         # Plot spread direction in the middle subplot
-        position = bands[lowest_pair]["position"]
         position.plot(ax=ax2, title=f"Signal of {primary} and {secondary}")
         ax2.set_ylabel("Signal")
         ax2.set_xlabel("")
