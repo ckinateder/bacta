@@ -150,6 +150,36 @@ class PairSelector:
 
         return stationarity_results
 
+class BarUtils:
+    def __init__(self):
+        pass
+
+    @staticmethod
+    def put_bollinger_bands(normalized_spread: pd.DataFrame, rolling_window: int = 8, std_multiplier: float = 1):
+        # make bands
+        rolling_window = 8  # This is used for determining how many days ahead to use to calculate the rolling mean
+        std_multiplier = 1
+        rolling_mean = (
+            normalized_spread.rolling(window=rolling_window).mean()
+        ).dropna()
+        rolling_std = (normalized_spread.rolling(window=rolling_window).std()).dropna()
+        upper_band = rolling_mean + (rolling_std * std_multiplier)
+        lower_band = rolling_mean - (rolling_std * std_multiplier)
+
+        # fix the bands and rollings to be the same length as the spread
+        rolling_mean = rolling_mean.reindex(normalized_spread.index)
+        upper_band = upper_band.reindex(normalized_spread.index)
+        lower_band = lower_band.reindex(normalized_spread.index)
+
+        # make a series where the value is 1 if the spread is above the upper band and -1 if it is below the lower band
+        position = pd.Series(
+            np.where(
+                normalized_spread > upper_band,
+                1,
+                np.where(normalized_spread < lower_band, -1, 0),
+            ),
+            index=normalized_spread.index,
+        )
 
 if __name__ == "__main__":
     utility_tickers = [
@@ -222,7 +252,7 @@ if __name__ == "__main__":
     plot_price_data(close_prices, "Utility Price Data")
     plt_show(prefix="utility_price_data")
 
-
+    #########################################################
     # PCA
     returns = close_prices.apply(lambda x: np.log(x / x.shift(1))).iloc[1:]
     pca = PCA()
@@ -306,9 +336,10 @@ if __name__ == "__main__":
         (lowest, highest)
     ]  # add the highest and lowest weighting assets from PCA test
 
-    print(f"Plotting the spread of the lowest {len(lowest_pairs)} pairs")
 
     # put bollinger bands 
+    print("Putting bollinger bands on the lowest pairs")
+    bands = {}
     for lowest_pair in lowest_pairs:
         primary, secondary = lowest_pair
         prices = close_prices[[primary, secondary]]  # .iloc[-1000:]
@@ -339,20 +370,32 @@ if __name__ == "__main__":
             ),
             index=normalized_spread.index,
         )
+        bands[lowest_pair] = {
+            "rolling_mean": rolling_mean,
+            "upper_band": upper_band,
+            "lower_band": lower_band,
+            "position": position,
+            "normalized_spread": normalized_spread,
+        }
 
     # plotting
+    print(f"Plotting the spread of the lowest {len(lowest_pairs)} pairs")
     for lowest_pair in lowest_pairs:
-
+        primary, secondary = lowest_pair
         # Create figure with three subplots
         fig, (ax1, ax2, ax3) = plt.subplots(
             3, 1, figsize=(15, 12), height_ratios=[2, 0.5, 1]
         )
 
         # Plot spread in the largest subplot
+        rolling_mean = bands[lowest_pair]["rolling_mean"]
+        upper_band = bands[lowest_pair]["upper_band"]
+        lower_band = bands[lowest_pair]["lower_band"]
+        normalized_spread = bands[lowest_pair]["normalized_spread"]
         normalized_spread.plot(
             ax=ax1, title=f"Normalized Spread of {primary} and {secondary}"
         )
-        rolling_mean.plot(
+        rolling_mean.plot( 
             ax=ax1, label="Rolling Mean", color="red", linewidth=0.5, alpha=0.8
         )
         upper_band.plot(
@@ -368,6 +411,7 @@ if __name__ == "__main__":
         ax1.tick_params(axis="x", which="both", bottom=False, labelbottom=False)
 
         # Plot spread direction in the middle subplot
+        position = bands[lowest_pair]["position"]
         position.plot(ax=ax2, title=f"Signal of {primary} and {secondary}")
         ax2.set_ylabel("Signal")
         ax2.set_xlabel("")
