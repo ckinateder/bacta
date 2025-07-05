@@ -192,7 +192,7 @@ if __name__ == "__main__":
         adjustment="all",
     )
 
-    refresh_bars = True
+    refresh_bars = False
     if refresh_bars:
         bars = client.get_stock_bars(request_params).df  # get the bars
         save_dataframe(bars, "utility_bars")  # save the bars
@@ -286,15 +286,18 @@ if __name__ == "__main__":
 
     # find the pair with the lowest p-value
     lowest_pvalue = cointegration_results.min().min()
-    print(f"The lowest p-value is {lowest_pvalue}")
+    print(f"The lowest p-value from cointegration is {lowest_pvalue}")
 
-    lowest_pairs = list(cointegration_results.stack().sort_values().head(20).index)
+    # remove duplicaets
+    lowest_pairs = list(cointegration_results.stack().sort_values().head(10).index)
+
     # remove duplicate pairs; order of each pair is not important
     lowest_pairs = list(set([tuple(sorted(pair)) for pair in lowest_pairs]))
     lowest_pairs += [
         (lowest, highest)
     ]  # add the highest and lowest weighting assets from PCA test
 
+    print(f"Plotting the spread of the lowest {len(lowest_pairs)} pairs")
     # plot the spread of the lowest pair
     for lowest_pair in lowest_pairs:
         primary, secondary = lowest_pair

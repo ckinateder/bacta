@@ -154,11 +154,7 @@ class BasicBacktester:
 
 if __name__ == "__main__":
     backtester = BasicBacktester(["AAPL", "MSFT"], cash=1000)
-    print(backtester.get_state())
-    print(backtester.get_history())
     backtester.place_buy_order("AAPL", 100, 1, pd.Timestamp("2025-01-01"))
-    print(backtester.get_state())
-    print(backtester.get_history())
     backtester.place_sell_order("AAPL", 100, 1, pd.Timestamp("2025-01-02"))
 
     print(dash("state"))
