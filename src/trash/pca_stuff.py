@@ -14,7 +14,6 @@ from util import (
     load_dataframe,
     save_json,
     load_json,
-    is_market_open,
 )
 from sklearn.decomposition import PCA
 # from arch.unitroot.cointegration import engle_granger
@@ -196,113 +195,44 @@ if __name__ == "__main__":
     test_prices = close_prices.iloc[split_index:]
 
     #########################################################
-    print("Using Cointegration to select the pairs:")
-
-    pair_selector = PairSelector()
-    cointegration_results = pair_selector.select_pairs(
-        close_prices, method="spread_adf"
-    )
-
-    # print the spreads
-    print(cointegration_results)
-
-    # show the cointegration results as a heatmap
+    # PCA
+    returns = close_prices.apply(lambda x: np.log(x / x.shift(1))).iloc[1:]
+    pca = PCA()
+    pca.fit(returns)
+    components = [str(x + 1) for x in range(pca.n_components_)]
+    explained_variance_pct = pca.explained_variance_ratio_ * 100
     plt.figure(figsize=(15, 10))
-    sns.heatmap(
-        cointegration_results.values.astype(np.float32),
-        annot=True,
-        cmap="YlGnBu",
-        fmt=".2f",
+    plt.bar(components, explained_variance_pct)
+    plt.title("Ratio of Explained Variance")
+    plt.xlabel("Principle Component #")
+    plt.ylabel("%")
+    plt_show(prefix="pca_explained_variance")
+
+    # most important component
+    first_component = pca.components_[0, :]
+    fig, axes = plt.subplots(2, 2, figsize=(20, 15))
+    axes = axes.flatten()
+
+    for i in range(4):
+        component = pca.components_[i, :]
+        axes[i].bar(utility_tickers, component)
+        axes[i].set_title(f"Weightings of each asset in component {i+1}")
+        axes[i].set_xlabel("Assets")
+        axes[i].set_ylabel("Weighting")
+        axes[i].tick_params(axis="x", rotation=30)
+
+    plt.tight_layout()
+    plt_show(prefix="pca_components")
+
+    highest_index = abs(first_component).argmax()
+    lowest_index = abs(first_component).argmin()
+    highest = utility_tickers[highest_index]
+    lowest = utility_tickers[lowest_index]
+    print("Using PCA to select the highest and lowest weighting assets:")
+    print(
+        f"The highest weighting is {highest} with a weighting of {first_component[highest_index]}"
     )
-    plt.grid(False)
-    plt.title("Cointegration Results")
-    plt.xlabel("Ticker")
-    plt.ylabel("Ticker")
-    # add ticker labels
-    plt.xticks(np.arange(len(utility_tickers)) +
-               0.5, utility_tickers, rotation=30)
-    plt.yticks(np.arange(len(utility_tickers)) +
-               0.5, utility_tickers, rotation=0)
-    plt_show(prefix="cointegration_results")
-
-    # find the pair with the lowest p-value
-    lowest_pvalue = cointegration_results.min().min()
-    print(f"The lowest p-value from cointegration is {lowest_pvalue}")
-
-    # remove duplicaets
-    lowest_pairs = list(
-        cointegration_results.stack().sort_values().head(10).index)
-
-    # remove duplicate pairs; order of each pair is not important
-    lowest_pairs = list(set([tuple(sorted(pair)) for pair in lowest_pairs]))
-
-    # put bollinger bands
-    for lowest_pair in lowest_pairs:
-        print(f"Plotting {lowest_pair}")
-        primary, secondary = lowest_pair
-        prices = close_prices[[primary, secondary]]  # .iloc[-1000:]
-        normalized_spread = BarUtils.put_normalized_spread(prices)
-        bands = BarUtils.put_bollinger_bands(normalized_spread)
-        bands["position"] = np.where(normalized_spread > bands["upper_band"], Position.LONG.value, np.where(
-            normalized_spread < bands["lower_band"], Position.SHORT.value, Position.NEUTRAL.value))
-
-        # Create figure with three subplots
-        fig, (ax1, ax2, ax3) = plt.subplots(
-            3, 1, figsize=(15, 12), height_ratios=[2, 0.5, 1]
-        )
-
-        # Plot spread in the largest subplot
-        rolling_mean = bands["rolling_mean"]
-        upper_band = bands["upper_band"]
-        lower_band = bands["lower_band"]
-        normalized_spread = bands["normalized_spread"]
-        position = bands["position"]
-        normalized_spread.plot(
-            ax=ax1, title=f"Normalized Spread of {primary} and {secondary}"
-        )
-        rolling_mean.plot(
-            ax=ax1, label="Rolling Mean", color="red", linewidth=0.5, alpha=0.8
-        )
-        upper_band.plot(
-            ax=ax1, label="Upper Band", color="green", linewidth=0.5, alpha=0.8
-        )
-        lower_band.plot(
-            ax=ax1, label="Lower Band", color="green", linewidth=0.5, alpha=0.8
-        )
-        ax1.set_ylabel("Quantity")
-        ax1.set_xlabel("")
-        ax1.grid(True, linestyle="--", alpha=0.7)
-        ax1.legend()
-        ax1.tick_params(axis="x", which="both",
-                        bottom=False, labelbottom=False)
-
-        # Plot spread direction in the middle subplot
-        position.plot(ax=ax2, title=f"Signal of {primary} and {secondary}")
-        ax2.set_ylabel("Signal")
-        ax2.set_xlabel("")
-        ax2.grid(True, linestyle="--", alpha=0.7)
-        ax2.tick_params(axis="x", which="both",
-                        bottom=False, labelbottom=False)
-
-        # Plot individual prices in the bottom subplot
-        prices.plot(ax=ax3, title=f"Price of {primary} and {secondary} ($)")
-        ax3.set_ylabel("Price ($)")
-        ax3.set_xlabel("Date")
-        ax3.grid(True, linestyle="--", alpha=0.7)
-
-        # if the index is a weekend, put a rectangle on the plot
-        # Vectorized approach: create a boolean mask for market open times, then apply axvspan for all at once
-        # Ensure prices.index is a DatetimeIndex and timezone-aware for is_market_open
-        # If not, localize to UTC (or appropriate tz) before calling is_market_open
-        # This assumes prices.index is already timezone-aware; if not, adjust accordingly
-
-        # Vectorized check for market open
-        # market_open_mask = pd.Series(prices.index).apply(is_market_open)
-        # open_indices = prices.index[market_open_mask.values]
-
-        # for ax in [ax3, ax2, ax1]:
-        #     for index in open_indices:
-        #         ax.axvspan(index, index, color="gray", alpha=0.02)
-
-        plt.tight_layout()
-        plt_show(prefix=f"spread_and_prices_{primary}_{secondary}")
+    print(
+        f"The lowest weighting is {lowest} with a weighting of {first_component[lowest_index]}"
+    )
+    print("--------------------------------")

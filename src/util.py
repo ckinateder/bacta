@@ -1,16 +1,20 @@
 import os
 import pandas as pd
 import json
-from names import SEC_TICKERS_FILENAME
+from __init__ import SEC_TICKERS_FILENAME
 from dotenv import load_dotenv
 import matplotlib.pyplot as plt
 import seaborn as sns
-from datetime import datetime, date
+from datetime import datetime, date, time
 import yfinance as yf
+import pytz
+import holidays
 
 load_dotenv()
 
 PLT_CNTR = 0
+nyse_holidays = holidays.NYSE()  # this is a dict-like object
+eastern = pytz.timezone("US/Eastern")
 
 
 def dash(text: str = None):
@@ -20,6 +24,7 @@ def dash(text: str = None):
         return "-" * terminal_width
     else:
         return "- " + text + " -" + ("-" * (terminal_width - len(text) - 4))
+
 
 def plt_show(prefix: str = "plt", folder: str = "plots", plt_cntr: bool = False):
     global PLT_CNTR
@@ -134,6 +139,29 @@ def get_earnings_date(ticker: str) -> datetime.date:
         return None
 
 
-if __name__ == "__main__":
-    # sec_tickers = load_sec_tickers()
-    print(get_earnings_date("AEP"))
+def is_market_open(dt: datetime) -> bool:
+    """
+    Check if a timezone-aware datetime is during US stock market open hours (NYSE),
+    including holiday and early close checks.
+
+    Parameters:
+    - dt: datetime.datetime (must be timezone-aware)
+
+    Returns:
+    - bool: True if the market is open at that time, False otherwise
+    """
+    if dt.tzinfo is None or dt.utcoffset() is None:
+        raise ValueError("Datetime must be timezone-aware")
+
+    # Convert to Eastern Time
+    dt_eastern = dt.astimezone(eastern)
+
+    # if the day is a weekend or holiday, return False
+    if dt_eastern.weekday() >= 5 or dt_eastern.date() in nyse_holidays:
+        return False
+
+    # if the time is before 9:30am or after 4:00pm, return False
+    if dt_eastern.time() < time(9, 30) or dt_eastern.time() > time(16, 0):
+        return False
+
+    return True
