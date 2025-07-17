@@ -15,6 +15,7 @@ from util import (
     save_json,
     load_json,
     is_market_open,
+    BarUtils,
 )
 from sklearn.decomposition import PCA
 # from arch.unitroot.cointegration import engle_granger
@@ -24,7 +25,6 @@ import seaborn as sns
 from itertools import combinations
 from __init__ import Position
 import pytz
-from bar_ops import BarUtils, resample_multi_ticker_bars, resample_bars
 from sklearn.linear_model import LinearRegression
 
 ept = pytz.timezone('US/Eastern')
@@ -171,7 +171,7 @@ if __name__ == "__main__":
         bars.index = bars.index.map(lambda x: (x[0], x[1].astimezone(ept)))
 
         # resample the bars. apply to each ticker
-        bars = resample_multi_ticker_bars(bars)
+        bars = BarUtils.resample_multi_ticker_bars(bars)
         save_dataframe(bars, "utility_bars_resampled")
 
         # get the close prices
@@ -289,20 +289,6 @@ if __name__ == "__main__":
         ax3.set_ylabel("Price ($)")
         ax3.set_xlabel("Date")
         ax3.grid(True, linestyle="--", alpha=0.7)
-
-        # if the index is a weekend, put a rectangle on the plot
-        # Vectorized approach: create a boolean mask for market open times, then apply axvspan for all at once
-        # Ensure prices.index is a DatetimeIndex and timezone-aware for is_market_open
-        # If not, localize to UTC (or appropriate tz) before calling is_market_open
-        # This assumes prices.index is already timezone-aware; if not, adjust accordingly
-
-        # Vectorized check for market open
-        # market_open_mask = pd.Series(prices.index).apply(is_market_open)
-        # open_indices = prices.index[market_open_mask.values]
-
-        # for ax in [ax3, ax2, ax1]:
-        #     for index in open_indices:
-        #         ax.axvspan(index, index, color="gray", alpha=0.02)
 
         plt.tight_layout()
         plt_show(prefix=f"spread_and_prices_{primary}_{secondary}")
