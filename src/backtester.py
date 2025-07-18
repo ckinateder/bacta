@@ -1,31 +1,41 @@
 import pandas as pd
 import numpy as np
-from abc import abstractmethod
-from enum import Enum
-from util import dash
-from __init__ import Order
-from __init__ import Position
-from util import is_market_open
+from abc import ABC, abstractmethod
+from __init__ import Order, Position
+from utilities import dash, is_market_open
+
+# enums
 
 
-class BasicBacktester:
+class EventBacktester(ABC):
     """
-    Basic backtester that buys and sells pairs of stocks.
+    Event-based backtester superclass.
+    There are two central dataframes:
+    - state_history: the state of the backtester at each time step.
+    - order_history: the history of orders placed.
 
-    This is a general backtester that can handle any number of assets.
+    These structures are updated based on the events that occur, and are used to calculate the performance of the backtester.
 
-    Args:
-        active_tickers: List of tickers to trade.
-        cash: Initial cash balance.
-
+    The user may want to override the run method to handle the events.
     """
 
     def __init__(self, active_tickers: list[str], cash: float = 100):
+        """
+        Initialize the backtester.
+
+        Args:
+            active_tickers (list[str]): The tickers to trade.
+            cash (float, optional): The initial cash balance. Defaults to 100.
+        """
         self.active_tickers = active_tickers
         self.initialize_bank(cash)
 
     def initialize_bank(self, cash: float = 100):
-        # history of states
+        """Initialize the bank and the state history.
+
+        Args:
+            cash (float, optional): The initial cash balance. Defaults to 100.
+        """
         self.state_history = pd.DataFrame(
             columns=["cash", *self.active_tickers])
         self.state_history.loc[0] = [cash, *[0] * len(self.active_tickers)]
@@ -121,7 +131,7 @@ class BasicBacktester:
         elif order == Order.SELL:
             self.place_sell_order(ticker, price, quantity, index)
 
-    def run_period(self, prices: pd.DataFrame):
+    def run(self, prices: pd.DataFrame):
         """
         Run a single period of the backtest. Prices are only from the test period. 
         Assume that prices have their indicators already calculated and are in the prices dataframe.
@@ -138,6 +148,7 @@ class BasicBacktester:
         # iterate through the index of the prices
         for index in prices.index:
             # check if the market is open
+
             if is_market_open(index):
                 # make a decision
                 current_bar_prices = prices.loc[index]
@@ -171,14 +182,14 @@ class BasicBacktester:
         return self.state_history
 
     @abstractmethod
-    def make_decision(self, prices: pd.DataFrame) -> Order:
+    def make_decision(self, prices: pd.DataFrame, **kwargs) -> Order:
         """
         Make a decision based on the prices. This is meant to be overridden by the child class.
 
         Args:
             prices: DataFrame with prices of the assets. Columns are the tickers, index is the date.
                 Close prices are used.
-
+            **kwargs: Additional arguments to the make_decision method. This could be a model, a strategy, etc.
         Returns:
             Order: The order to place.
         """
@@ -186,7 +197,7 @@ class BasicBacktester:
             "This method must be overridden by the child class.")
 
 
-class WalkForwardBacktester(BasicBacktester):
+class WalkForwardBacktester(EventBacktester):
     """
     Walk forward backtester that runs the backtest for a given number of periods.
     """
@@ -215,7 +226,7 @@ class WalkForwardBacktester(BasicBacktester):
 
 
 if __name__ == "__main__":
-    backtester = BasicBacktester(["AAPL", "MSFT"], cash=1000)
+    backtester = EventBacktester(["AAPL", "MSFT"], cash=1000)
     backtester.place_buy_order("AAPL", 100, 1, pd.Timestamp("2025-01-01"))
     backtester.place_sell_order("AAPL", 100, 1, pd.Timestamp("2025-01-02"))
 

@@ -1,41 +1,27 @@
-import pandas as pd
-import numpy as np
-from dotenv import load_dotenv
-import os
+from datetime import datetime, timedelta
+from itertools import combinations
+
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
-from datetime import datetime, timedelta
-from util import (
-    save_dataframe,
-    plt_show,
-    plot_price_data,
-    get_earnings_date,
-    load_dataframe,
-    save_json,
-    load_json,
-    is_market_open,
-    BarUtils,
-)
-from sklearn.decomposition import PCA
-# from arch.unitroot.cointegration import engle_granger
-from statsmodels.tsa.stattools import adfuller, coint
+from dotenv import load_dotenv
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 import seaborn as sns
-from itertools import combinations
+from statsmodels.tsa.stattools import adfuller
+
 from __init__ import Position
-import pytz
-from sklearn.linear_model import LinearRegression
-
-ept = pytz.timezone('US/Eastern')
-utc = pytz.utc
-
+from utilities import load_dataframe, load_json, save_dataframe, save_json, getenv
+from utilities.bars import BarUtils
+from utilities.market import get_earnings_date, eastern
+from utilities.plotting import plot_price_data, plt_show, DEFAULT_FIGSIZE
 load_dotenv()
 
-ALPACA_API_KEY = os.getenv("ALPACA_API_KEY")
-ALPACA_API_SECRET = os.getenv("ALPACA_API_SECRET")
+ALPACA_API_KEY = getenv("ALPACA_API_KEY")
+ALPACA_API_SECRET = getenv("ALPACA_API_SECRET")
 
-plt.rcParams["figure.figsize"] = (15, 10)
+plt.rcParams["figure.figsize"] = DEFAULT_FIGSIZE
 plt.rcParams["grid.linestyle"] = "--"
 plt.rcParams["grid.alpha"] = 0.7
 plt.rcParams["axes.grid"] = True
@@ -168,7 +154,7 @@ if __name__ == "__main__":
         bars = load_dataframe("utility_bars")  # load the bars
 
         # convert all the dates to est. this is a multi-index dataframe, so we need to convert the index
-        bars.index = bars.index.map(lambda x: (x[0], x[1].astimezone(ept)))
+        bars.index = bars.index.map(lambda x: (x[0], x[1].astimezone(eastern)))
 
         # resample the bars. apply to each ticker
         bars = BarUtils.resample_multi_ticker_bars(bars)
@@ -200,7 +186,7 @@ if __name__ == "__main__":
 
     pair_selector = PairSelector()
     cointegration_results = pair_selector.select_pairs(
-        close_prices, method="spread_adf"
+        train_prices, method="spread_adf"
     )
 
     # print the spreads
@@ -255,7 +241,7 @@ if __name__ == "__main__":
         rolling_mean = bands["rolling_mean"]
         upper_band = bands["upper_band"]
         lower_band = bands["lower_band"]
-        normalized_spread = bands["normalized_spread"]
+        normalized_spread = bands["series"]
         position = bands["position"]
         normalized_spread.plot(
             ax=ax1, title=f"Normalized Spread of {primary} and {secondary}"

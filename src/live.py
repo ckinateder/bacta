@@ -26,16 +26,15 @@ def convert_to_est(utc_dt: datetime) -> datetime:
     return utc_dt.astimezone(EST)
 
 
-class LivePairs:
+class LiveStreamer:
     def __init__(
         self,
-        pair: tuple,
+        tickers: list[str],
         window_hours: int = 1,
         api_key: str = ALPACA_API_KEY,
         secret_key: str = ALPACA_API_SECRET,
     ) -> None:
-        self.primary = pair[0]
-        self.secondary = pair[1]
+        self.tickers = tickers
         self.window_hours = window_hours
         self.api_key = api_key
         self.secret_key = secret_key
@@ -72,8 +71,10 @@ class LivePairs:
         self.quotes_df.index = pd.DatetimeIndex([], tz="UTC")
 
         # subscribe
-        self.data_stream.subscribe_quotes(self.on_quote, self.primary, self.secondary)
-        self.data_stream.subscribe_bars(self.on_bar, self.primary, self.secondary)
+        self.data_stream.subscribe_quotes(
+            self.on_quote, *self.tickers)
+        self.data_stream.subscribe_bars(
+            self.on_bar, *self.tickers)
 
     def _maintain_rolling_window(self, df: pd.DataFrame) -> pd.DataFrame:
         """Maintain a rolling window of data using UTC timezone.
@@ -202,10 +203,10 @@ class LivePairs:
 
 
 if __name__ == "__main__":
-    pair = ["CMS", "NEE"]
+    tickers = ["CMS", "NEE"]
     # Example with custom 12-hour window
-    streamer = LivePairs(pair, window_hours=12)
-    print("Created streamer tracking", pair)
+    streamer = LiveStreamer(tickers, window_hours=12)
+    print("Created streamer tracking", tickers)
 
     try:
         streamer.start_stream()

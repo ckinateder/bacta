@@ -10,7 +10,3 @@ class Position(Enum):
     LONG = 1
     SHORT = -1
     NEUTRAL = 0
-
-
-# names
-SEC_TICKERS_FILENAME = "sec_tickers.json"
