@@ -13,7 +13,7 @@ try:
     from src import get_logger
 except ImportError:
     from __init__ import *
-    from .. import get_logger
+    from src import get_logger
 
 # Create a logger for the market module
 logger = get_logger("utilities.market")
@@ -98,3 +98,12 @@ def load_sec_tickers(data_dir: str = os.getenv("DATA_DIR")) -> pd.DataFrame:
     df.set_index("cik", inplace=True)
     logger.info(f"Loaded {len(df)} SEC tickers")
     return df
+
+
+if __name__ == "__main__":
+    # 5pm est
+    dt = datetime.now(eastern)
+
+    dt = dt.replace(day=17, hour=10, minute=0, second=0, microsecond=0)
+
+    print(is_market_open(dt))

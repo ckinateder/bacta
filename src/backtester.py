@@ -117,7 +117,7 @@ class EventBacktester(ABC):
         if ffill:
             self.state_history = self.state_history.ffill()
 
-    def _update_portfolio_value(self, index: pd.Timestamp, prices: dict[str, float]):
+    def _update_portfolio_value(self, index: pd.Timestamp, prices: pd.Series):
         """Update the portfolio value at the given index using current prices.
 
         Args:
@@ -225,6 +225,8 @@ class EventBacktester(ABC):
         assert test_prices.index.is_monotonic_increasing, "Prices dataframe must have a monotonic increasing index"
         assert isinstance(
             test_prices.index[0], pd.Timestamp), "Prices dataframe index must be a timestamp"
+        # store
+        self.test_prices = test_prices
 
         # if train prices is not None, we want to make the full price history
         if self.train_prices is not None:
@@ -243,22 +245,18 @@ class EventBacktester(ABC):
         for index in full_price_history.index[start_loc:]:
             # perform update step
             self.update_step(full_price_history, index)
-            # check if the market is open
             if ignore_market_open or is_market_open(index):
                 # make a decision
                 current_bar_prices = full_price_history.loc[index]
                 self.take_action(current_bar_prices)
 
                 # Update portfolio value with current prices
-                current_prices = {
-                    ticker: current_bar_prices[ticker] for ticker in self.active_tickers}
-                self._update_portfolio_value(index, current_prices)
+                self._update_portfolio_value(index, current_bar_prices)
 
-            if close_positions:
-                if index == full_price_history.index[-2]:
-                    logger.info(f"Closing positions at {index}...")
-                    self.close_positions(full_price_history.iloc[-1])
-                    break
+            if close_positions and index == full_price_history.index[-2]:
+                logger.info(f"Closing positions at {index}...")
+                self.close_positions(full_price_history.iloc[-1])
+                break
 
         logger.info("Backtest complete.")
         # return the state history
@@ -328,39 +326,6 @@ class EventBacktester(ABC):
             train_prices.index[0], pd.Timestamp), "Prices dataframe index must be a timestamp"
         self.train_prices = train_prices
         self.preload(train_prices)
-    ################################################################################################
-    ################################################################################################
-
-    def preload(self, train_prices: pd.DataFrame):
-        """
-        Preload the indicators for the backtest. This is meant to be overridden by the child class.
-        """
-        raise NotImplementedError(
-            "This method must be overridden by the child class.")
-
-    def update_step(self, prices: pd.DataFrame, index: pd.Timestamp):
-        """
-        Args:
-            prices: DataFrame with prices of the assets. Columns are the tickers, index is the date.
-                Close prices are used.
-            index: The index point of the prices.
-        This is optional and can be overridden by the child class.
-        """
-        pass
-
-    @abstractmethod
-    def take_action(self, prices: pd.Series):
-        """
-        Make a decision based on the current prices. This is meant to be overridden by the child class.
-        This will place an order if needed.
-
-        Args:
-            prices: Series with prices of the assets. Index is the date.
-        Returns:
-            Position: The order to place.
-        """
-        raise NotImplementedError(
-            "This method must be overridden by the child class.")
 
     def plot_equity_curve(self, figsize: tuple = DEFAULT_FIGSIZE, title: str = "Equity Curve", save_plot: bool = True, show_plot: bool = False) -> plt.Figure:
         """
@@ -386,8 +351,8 @@ class EventBacktester(ABC):
         portfolio_values = state_history["portfolio_value"]
         # Filter out the initial state (index 0) and only plot timestamp-indexed data
         portfolio_values_filtered = portfolio_values[portfolio_values.index != 0]
-        ax.plot(portfolio_values_filtered.index, portfolio_values_filtered,
-                label="Portfolio Value", linewidth=2, color='blue')
+        ax.step(portfolio_values_filtered.index, portfolio_values_filtered,
+                label="Portfolio Value", linewidth=2, color='blue', where='post')
 
         # Add horizontal line for initial portfolio value
         initial_value = portfolio_values_filtered.iloc[0]
@@ -433,7 +398,7 @@ class EventBacktester(ABC):
 
         return fig
 
-    def plot_performance_analysis(self, figsize: tuple = (15, 12), save_plot: bool = True, show_plot: bool = True):
+    def plot_performance_analysis(self, figsize: tuple = (20, 10), save_plot: bool = True, show_plot: bool = True):
         """
         Create a comprehensive performance analysis plot with multiple subplots.
 
@@ -449,8 +414,9 @@ class EventBacktester(ABC):
                 "No state history available for plotting performance analysis")
             return
 
-        # Create figure with subplots
-        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=figsize)
+        # Create figure with subplots (2 rows, 3 columns)
+        fig, ((ax1, ax2, ax3), (ax4, ax5, ax6)
+              ) = plt.subplots(2, 3, figsize=figsize)
 
         portfolio_values = state_history["portfolio_value"]
         # Filter out the initial state (index 0) and only plot timestamp-indexed data
@@ -459,8 +425,8 @@ class EventBacktester(ABC):
         # Subplot 1: Cumulative Returns
         returns = portfolio_values_filtered.pct_change().dropna()
         cumulative_returns = (1 + returns).cumprod()
-        ax1.plot(cumulative_returns.index, cumulative_returns,
-                 label="Cumulative Returns", linewidth=2, color='green')
+        ax1.step(cumulative_returns.index, cumulative_returns,
+                 label="Cumulative Returns", linewidth=2, color='green', where='post')
         ax1.axhline(y=1, color='red', linestyle='--',
                     alpha=0.7, label='Break-even')
         ax1.set_title("Cumulative Returns")
@@ -472,9 +438,11 @@ class EventBacktester(ABC):
         cumulative_max = portfolio_values_filtered.cummax()
         drawdown = ((portfolio_values_filtered -
                     cumulative_max) / cumulative_max) * 100
+        # For step plots, we need to use fill_between differently
         ax2.fill_between(drawdown.index, drawdown, 0,
-                         color='red', alpha=0.3, label='Drawdown')
-        ax2.plot(drawdown.index, drawdown, color='red', linewidth=1)
+                         color='red', alpha=0.3, label='Drawdown', step='post')
+        ax2.step(drawdown.index, drawdown, color='red',
+                 linewidth=1, where='post')
         ax2.set_title("Drawdown")
         ax2.set_ylabel("Drawdown (%)")
         ax2.legend()
@@ -491,8 +459,8 @@ class EventBacktester(ABC):
         ax3.grid(True, linestyle='--', alpha=0.7)
 
         # Subplot 4: Equity Curve
-        ax4.plot(portfolio_values_filtered.index, portfolio_values_filtered,
-                 label="Portfolio Value", linewidth=2, color='blue')
+        ax4.step(portfolio_values_filtered.index, portfolio_values_filtered,
+                 label="Portfolio Value", linewidth=2, color='blue', where='post')
         initial_value = portfolio_values_filtered.iloc[0]
         ax4.axhline(y=initial_value, color='red', linestyle='--', alpha=0.7,
                     label=f'Initial Value: ${initial_value:.2f}')
@@ -501,8 +469,53 @@ class EventBacktester(ABC):
         ax4.legend()
         ax4.grid(True, linestyle='--', alpha=0.7)
 
+        # Subplot 5: Ticker Prices
+        if hasattr(self, 'test_prices') and self.test_prices is not None:
+            for ticker in self.active_tickers:
+                if ticker in self.test_prices.columns:
+                    ax5.step(self.test_prices.index, self.test_prices[ticker],
+                             label=ticker, linewidth=1.5, where='post')
+            ax5.set_title("Ticker Prices")
+            ax5.set_ylabel("Price ($)")
+            ax5.legend()
+            ax5.grid(True, linestyle='--', alpha=0.7)
+        else:
+            ax5.text(0.5, 0.5, 'No test prices available',
+                     transform=ax5.transAxes, ha='center', va='center')
+            ax5.set_title("Ticker Prices")
+
+        # Subplot 6: Buy and Hold Returns
+        if hasattr(self, 'test_prices') and self.test_prices is not None:
+            all_cum_returns = []
+            for ticker in self.active_tickers:
+                if ticker in self.test_prices.columns:
+                    ticker_prices = self.test_prices[ticker]
+                    ticker_returns = ticker_prices.pct_change().dropna()
+                    ticker_cum_returns = (1 + ticker_returns).cumprod()
+                    ax6.step(ticker_cum_returns.index, ticker_cum_returns,
+                             label=f'{ticker} B&H', linewidth=1.5, alpha=0.7, where='post')
+                    all_cum_returns.append(ticker_cum_returns)
+
+                    # Calculate combined returns (equal-weighted portfolio)
+            if all_cum_returns:
+                combined_returns = pd.concat(
+                    all_cum_returns, axis=1).mean(axis=1)
+                ax6.step(combined_returns.index, combined_returns,
+                         label='Combined B&H', linewidth=2, color='black', linestyle='-', where='post')
+
+            ax6.axhline(y=1, color='red', linestyle='--',
+                        alpha=0.7, label='Break-even')
+            ax6.set_title("Buy and Hold Returns")
+            ax6.set_ylabel("Cumulative Return")
+            ax6.legend()
+            ax6.grid(True, linestyle='--', alpha=0.7)
+        else:
+            ax6.text(0.5, 0.5, 'No test prices available',
+                     transform=ax6.transAxes, ha='center', va='center')
+            ax6.set_title("Buy and Hold Returns")
+
         # Rotate x-axis labels for all subplots
-        for ax in [ax1, ax2, ax4]:
+        for ax in [ax1, ax2, ax4, ax5, ax6]:
             plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
 
         plt.tight_layout()
@@ -514,6 +527,40 @@ class EventBacktester(ABC):
             plt.show()
         else:
             plt.close()
+
+    ################################################################################################
+    ################################################################################################
+
+    def preload(self, train_prices: pd.DataFrame):
+        """
+        Preload the indicators for the backtest. This is meant to be overridden by the child class.
+        """
+        raise NotImplementedError(
+            "This method must be overridden by the child class.")
+
+    def update_step(self, prices: pd.DataFrame, index: pd.Timestamp):
+        """
+        Args:
+            prices: DataFrame with prices of the assets. Columns are the tickers, index is the date.
+                Close prices are used.
+            index: The index point of the prices.
+        This is optional and can be overridden by the child class.
+        """
+        pass
+
+    @abstractmethod
+    def take_action(self, prices: pd.Series):
+        """
+        Make a decision based on the current prices. This is meant to be overridden by the child class.
+        This will place an order if needed.
+
+        Args:
+            prices: Series with prices of the assets. Index is the date.
+        Returns:
+            Position: The order to place.
+        """
+        raise NotImplementedError(
+            "This method must be overridden by the child class.")
 
 
 class WalkForwardBacktester(EventBacktester, ABC):
@@ -595,7 +642,7 @@ if __name__ == "__main__":
     test_prices = prices.iloc[midpoint:]
 
     backtester.load_train_prices(train_prices)
-    backtester.run(test_prices, ignore_market_open=True)
+    backtester.run(test_prices, ignore_market_open=False)
 
     print(dash("order history"))
     print(backtester.get_history())
