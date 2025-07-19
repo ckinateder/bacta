@@ -15,14 +15,19 @@ class EventBacktester(ABC):
     - state_history: the state of the backtester at each time step.
     - order_history: the history of orders placed.
 
-    User should override the update_step and make_decision methods.
-    update_step is called at each time step and is optional. This is where the user can perform
-    any calculations that are needed at each time step, update indicators, etc.
-    make_decision is called at each time step and is required. This is where the user should make a decision
-    based on the indicators and the prices.
+    Functions to be overridden:
+    - preload: preload the indicators for the backtest. Optional.
+    - update_step: update the indicators for the backtest at each time step. Optional.
+    - take_action: make a decision based on the indicators and the prices.
+
+    If the user wants to load the train prices, they must call the load_train_prices method before running the backtest.
+    This calls the preload method with the train prices and sets the train_prices attribute.
 
     These structures are updated based on the events that occur, and are used to calculate the performance of the backtester.
     The user may want to override the run method to handle the events.
+
+    To use this class, the user must override the take_action method. If necessary, the user can override the preload and update_step methods.
+    The user can call the run method to run the backtest.
     """
 
     def __init__(self, active_tickers: list[str], cash: float = 100):
@@ -35,6 +40,11 @@ class EventBacktester(ABC):
         """
         self.active_tickers = active_tickers
         self.initialize_bank(cash)
+
+        # may or may not be needed
+        self.train_prices = None
+        self.test_prices = None
+        self.full_price_history = None
 
     def initialize_bank(self, cash: float = 100):
         """Initialize the bank and the state history.
@@ -96,7 +106,7 @@ class EventBacktester(ABC):
             ticker (str): The ticker of the asset.
             price (float): The price of the asset.
             quantity (float): The quantity of the asset.
-            order (Position): The order to place. 
+            order (Position): The order to place.
             index (pd.Timestamp): The index of the state.
         """
         new_history = pd.DataFrame([{
@@ -142,7 +152,7 @@ class EventBacktester(ABC):
         Close all positions at the given prices.
 
         Args:
-            prices (pd.Series): The prices to close the positions at. Name is the date. Index is the tickers. 
+            prices (pd.Series): The prices to close the positions at. Name is the date. Index is the tickers.
         """
         index = prices.name
         for ticker in self.active_tickers:
@@ -155,52 +165,52 @@ class EventBacktester(ABC):
                     self.place_buy_order(
                         ticker, prices[ticker], abs(position), index)
 
-    def run(self, prices: pd.DataFrame, start_index: pd.Timestamp = None, ignore_market_open: bool = False, close_positions: bool = True):
+    def run(self, test_prices: pd.DataFrame, ignore_market_open: bool = False, close_positions: bool = True):
         """
         Run a single period of the backtest over the given dataframe.
         Assume that prices have their indicators already calculated and are in the prices dataframe.
 
         Args:|
-            prices: DataFrame with prices of the assets. Columns are the tickers, index is the date.
+            test_prices: DataFrame with prices of the assets. Columns are the tickers, index is the date.
                 Close prices are used.
-            start_index (pd.Timestamp, optional): The index to start the backtest at. Defaults to None.
             ignore_market_open (bool, optional): Whether to ignore the market operating hours. Defaults to False.
             close_positions (bool, optional): Whether to close positions at the end of the backtest. Defaults to True.
         """
         # check if active tickers are in the prices dataframe
         assert all(
-            ticker in prices.columns for ticker in self.active_tickers), "Ticker not found in prices dataframe"
-        assert prices.index.is_unique, "Prices dataframe must have a unique index"
-        assert prices.index.is_monotonic_increasing, "Prices dataframe must have a monotonic increasing index"
+            ticker in test_prices.columns for ticker in self.active_tickers), "Ticker not found in prices dataframe"
+        assert test_prices.index.is_unique, "Prices dataframe must have a unique index"
+        assert test_prices.index.is_monotonic_increasing, "Prices dataframe must have a monotonic increasing index"
         assert isinstance(
-            prices.index[0], pd.Timestamp), "Prices dataframe index must be a timestamp"
+            test_prices.index[0], pd.Timestamp), "Prices dataframe index must be a timestamp"
 
-        # get the start and end locations
-        start_loc = 0
-        if start_index is not None:
-            assert start_index in prices.index, f"Start index {start_index} not found in prices dataframe"
-            start_loc = prices.index.get_loc(start_index)
-
-        # if close_positions, we want to close the positions at the second to last index
+        # if train prices is not None, we want to make the full price history
+        if self.train_prices is not None:
+            print(
+                f"Train prices have been previously loaded. Concatenating with test prices...")
+            full_price_history = pd.concat([self.train_prices, test_prices])
+            start_loc = len(self.train_prices)
+        else:
+            full_price_history = test_prices
+            start_loc = 0
 
         # print the backtest range
         print(
-            f"Running backtest from {prices.index[start_loc]}...")
-
+            f"Running backtest over {len(full_price_history.index[start_loc:])} bars from {full_price_history.index[start_loc]} to {full_price_history.index[-1]}...")
         # iterate through the index of the prices
-        for index in prices.index[start_loc:]:
+        for index in full_price_history.index[start_loc:]:
             # perform update step
-            self.update_step(prices, index)
+            self.update_step(full_price_history, index)
             # check if the market is open
             if ignore_market_open or is_market_open(index):
                 # make a decision
-                current_bar_prices = prices.loc[index]
-                self.make_decision(current_bar_prices)
+                current_bar_prices = full_price_history.loc[index]
+                self.take_action(current_bar_prices)
 
             if close_positions:
-                if index == prices.index[-2]:
+                if index == full_price_history.index[-2]:
                     print(f"Closing positions at {index}...")
-                    self.close_positions(prices.iloc[-1])
+                    self.close_positions(full_price_history.iloc[-1])
                     break
 
         print("Backtest complete.")
@@ -230,7 +240,31 @@ class EventBacktester(ABC):
         history["cash"] = history["cash"].round(2)
         return history
 
-    @abstractmethod
+    def load_train_prices(self, train_prices: pd.DataFrame):
+        """
+        Preload the indicators for the backtest. This is meant to be overridden by the child class.
+        The user must explicitly call this method before running the backtest.
+
+        Args:
+            train_prices (pd.DataFrame): The prices of the assets over the TRAINING period.
+                Columns are the tickers, index is the date. Close prices are used.
+        """
+        assert all(
+            ticker in train_prices.columns for ticker in self.active_tickers), "Ticker not found in prices dataframe"
+        assert train_prices.index.is_unique, "Prices dataframe must have a unique index"
+        assert train_prices.index.is_monotonic_increasing, "Prices dataframe must have a monotonic increasing index"
+        assert isinstance(
+            train_prices.index[0], pd.Timestamp), "Prices dataframe index must be a timestamp"
+        self.train_prices = train_prices
+        self.preload(train_prices)
+
+    def preload(self, train_prices: pd.DataFrame):
+        """
+        Preload the indicators for the backtest. This is meant to be overridden by the child class.
+        """
+        raise NotImplementedError(
+            "This method must be overridden by the child class.")
+
     def update_step(self, prices: pd.DataFrame, index: pd.Timestamp):
         """
         Args:
@@ -243,9 +277,10 @@ class EventBacktester(ABC):
             "This method must be overridden by the child class.")
 
     @abstractmethod
-    def make_decision(self, prices: pd.Series) -> Position:
+    def take_action(self, prices: pd.Series):
         """
         Make a decision based on the current prices. This is meant to be overridden by the child class.
+        This will place an order if needed.
 
         Args:
             prices: Series with prices of the assets. Index is the date.
@@ -292,29 +327,50 @@ class SMABacktester(EventBacktester):
     def __init__(self, active_tickers: list[str], cash: float = 100):
         super().__init__(active_tickers, cash)
 
+    def preload(self, prices: pd.DataFrame):
+        """
+        Preload the indicators for the backtest.
+        """
+        self.sma_shorts = {ticker: prices[ticker].rolling(
+            window=15).mean() for ticker in self.active_tickers}
+        self.sma_longs = {ticker: prices[ticker].rolling(
+            window=50).mean() for ticker in self.active_tickers}
+
     def update_step(self, prices: pd.DataFrame, index: pd.Timestamp):
         """
         Update the state of the backtester.
         """
-        pass
+        # update the indicators
+        self.sma_shorts = {ticker: prices[ticker].rolling(
+            window=15).mean() for ticker in self.active_tickers}
+        self.sma_longs = {ticker: prices[ticker].rolling(
+            window=50).mean() for ticker in self.active_tickers}
 
-    def make_decision(self, prices: pd.Series) -> Position:
+    def take_action(self, prices: pd.Series):
         """
         Make a decision based on the prices.
         """
-        self.place_order(Position.LONG, prices.name,
-                         prices.index[1], prices.values[1], 1)
-        self.place_order(Position.SHORT, prices.name,
-                         prices.index[0], prices.values[0], 1)
+        for ticker in self.active_tickers:
+            if self.sma_shorts[ticker][prices.name] > self.sma_longs[ticker][prices.name]:
+                self.place_order(Position.LONG, prices.name,
+                                 ticker, prices[ticker], 1)
+            else:
+                self.place_order(Position.SHORT, prices.name,
+                                 ticker, prices[ticker], 1)
 
 
 if __name__ == "__main__":
     backtester = SMABacktester(["NEE", "EXC"], cash=1000)
 
-    filename = "../data/NEE_EXC_D_PCG_XEL_ED_WEC_DTE_PPL_AEE_CNP_FE_CMS_EIX_ETR_EVRG_LNT_PNW_IDA_AEP_DUK_SRE_ATO_NRG_2023-01-01_2025-07-19_1Hour_close_prices"
+    filename = "NEE_EXC_D_PCG_XEL_ED_WEC_DTE_PPL_AEE_CNP_FE_CMS_EIX_ETR_EVRG_LNT_PNW_IDA_AEP_DUK_SRE_ATO_NRG_2023-01-01_2025-07-19_1Hour_close_prices"
     prices = load_dataframe(filename)
-    prices = prices[["NEE", "EXC"]].tail(100)
-    backtester.run(prices, ignore_market_open=True)
+    prices = prices[["NEE", "EXC"]].tail(1000)
+    midpoint = int(prices.shape[0] * 0.8)
+    train_prices = prices.iloc[:midpoint]
+    test_prices = prices.iloc[midpoint:]
+
+    backtester.load_train_prices(train_prices)
+    backtester.run(test_prices, ignore_market_open=True)
 
     print(dash("order history"))
     print(backtester.get_history())
