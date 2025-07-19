@@ -228,7 +228,7 @@ if __name__ == "__main__":
         primary, secondary = lowest_pair
         prices = close_prices[[primary, secondary]]  # .iloc[-1000:]
         normalized_spread = BarUtils.put_normalized_spread(prices)
-        bands = BarUtils.put_bollinger_bands(normalized_spread)
+        bands = BarUtils.create_bollinger_bands(normalized_spread)
         bands["position"] = np.where(normalized_spread > bands["upper_band"], Position.LONG.value, np.where(
             normalized_spread < bands["lower_band"], Position.SHORT.value, Position.NEUTRAL.value))
 

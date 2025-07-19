@@ -55,13 +55,13 @@ def download_close_prices(tickers: list[str], start_date: datetime, end_date: da
 
     if refresh_bars or not (os.path.exists(os.path.join(data_dir, filename + "_close_prices.csv")) or os.path.exists(os.path.join(data_dir, filename + "_close_prices.pkl"))):
         bars = client.get_stock_bars(request_params).df  # get the bars
-        save_dataframe(bars, filename, data_dir)  # save the bars
-        bars = load_dataframe(filename, data_dir)  # load the bars
+        # save_dataframe(bars, filename, data_dir)  # save the bars
+        # bars = load_dataframe(filename, data_dir)  # load the bars
         # convert all the dates to est. this is a multi-index dataframe, so we need to convert the index
         bars.index = bars.index.map(lambda x: (x[0], x[1].astimezone(eastern)))
         # resample the bars. apply to each ticker
         bars = BarUtils.resample_multi_ticker_bars(bars)
-        save_dataframe(bars, filename + "_resampled", data_dir)
+        # save_dataframe(bars, filename + "_resampled", data_dir)
         # get the close prices
         close_prices = bars["close"].unstack(level=0)
         save_dataframe(close_prices, filename + "_close_prices", data_dir)
@@ -91,7 +91,7 @@ class BarUtils:
         return normalized_spread
 
     @staticmethod
-    def put_bollinger_bands(series: pd.DataFrame, rolling_window: int = 8, std_multiplier: float = 1) -> pd.DataFrame:
+    def create_bollinger_bands(series: pd.DataFrame, rolling_window: int = 8, std_multiplier: float = 1) -> pd.DataFrame:
         """Put bollinger bands on the normalized spread.
 
         Args:

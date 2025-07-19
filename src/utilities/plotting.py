@@ -86,6 +86,17 @@ def plot_split_dataframe(
     plt.tight_layout()
 
 
+def plot_spread_and_bollinger_bands(spread_and_bollinger_bands: pd.DataFrame, title: str = "", figsize: tuple = DEFAULT_FIGSIZE):
+    """Plot the spread and bollinger bands in a 3x1 subplot.
+
+    Args:
+        spread_and_bollinger_bands (pd.DataFrame): A DataFrame with columns "spread", "upper", "middle", and "lower".
+        title (str, optional): Title for the plot.
+        figsize (tuple, optional): Figure size.
+    """
+    raise NotImplementedError("Not implemented")
+
+
 def plt_show(prefix: str = "plt", folder: str = "plots", plt_cntr: bool = False):
     """
     Show the plot and save it to the given folder.

@@ -1,9 +1,5 @@
 from enum import Enum
-
-
-class Order(Enum):
-    BUY = 1
-    SELL = -1
+import pandas as pd
 
 
 class Position(Enum):
