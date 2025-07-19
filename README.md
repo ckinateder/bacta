@@ -2,7 +2,7 @@
 
 Prototyping statistical arbitrage.
 
-![tickers](img/Utility-Spread.png)
+![tickers](img/performance_analysis.png)
 
 ## Stack
 - Python
