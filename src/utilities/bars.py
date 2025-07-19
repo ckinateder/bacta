@@ -8,14 +8,14 @@ import pytz
 import warnings
 from dotenv import load_dotenv
 
+# path wrangling
 try:
-    from utilities import load_dataframe, save_dataframe, getenv
-    from utilities.market import eastern
+    from src.utilities import *
 except ImportError:
-    warnings.warn(
-        "Could not import utilities from current directory. Using utilities from src.utilities (this is likely a jupyter notebook)")
-    from src.utilities import load_dataframe, save_dataframe, getenv
-    from src.utilities.market import eastern
+    from __init__ import *
+
+from src.utilities import load_dataframe, save_dataframe, getenv
+from src.utilities.market import eastern
 
 
 load_dotenv()

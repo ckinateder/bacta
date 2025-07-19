@@ -1,11 +1,23 @@
-import pandas as pd
-import numpy as np
 from abc import ABC, abstractmethod
-from __init__ import Position, Position
-from utilities import dash, load_dataframe
-from utilities.market import is_market_open
+from enum import Enum
 
-# enums
+import numpy as np
+import pandas as pd
+
+# path wrangling
+try:
+    from src import *
+except ImportError:
+    from __init__ import *
+
+from src.utilities import dash, load_dataframe
+from src.utilities.market import is_market_open
+
+
+class Position(Enum):
+    LONG = 1
+    SHORT = -1
+    NEUTRAL = 0
 
 
 class EventBacktester(ABC):

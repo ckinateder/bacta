@@ -7,12 +7,11 @@ import holidays
 import pytz
 import warnings
 
+# path wrangling
 try:
-    from utilities import getenv
+    from src.utilities import *
 except ImportError:
-    warnings.warn(
-        "Could not import utilities from current directory. Using utilities from src.utilities (this is likely a jupyter notebook)")
-    from src.utilities import getenv
+    from __init__ import *
 
 
 # global variables
