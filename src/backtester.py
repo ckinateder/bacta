@@ -6,18 +6,15 @@ import pandas as pd
 
 # path wrangling
 try:
-    from src import *
+    from src import Position, get_logger
 except ImportError:
-    from __init__ import *
+    from __init__ import Position, get_logger
 
 from src.utilities import dash, load_dataframe
 from src.utilities.market import is_market_open
 
-
-class Position(Enum):
-    LONG = 1
-    SHORT = -1
-    NEUTRAL = 0
+# Get logger for this module
+logger = get_logger("backtester")
 
 
 class EventBacktester(ABC):
@@ -65,8 +62,9 @@ class EventBacktester(ABC):
             cash (float, optional): The initial cash balance. Defaults to 100.
         """
         self.state_history = pd.DataFrame(
-            columns=["cash", *self.active_tickers])
-        self.state_history.loc[0] = [cash, *[0] * len(self.active_tickers)]
+            columns=["cash", "portfolio_value", *self.active_tickers])
+        self.state_history.loc[0] = [
+            cash, cash, *[0] * len(self.active_tickers)]
 
         # history of orders
         self.order_history = pd.DataFrame(
@@ -107,9 +105,36 @@ class EventBacktester(ABC):
             self.state_history.loc[index,
                                    ticker] = current_ticker_quantity - quantity
 
+        # update portfolio valuation
+        self._update_portfolio_value(index, {ticker: price})
+
         # ffill to get rid of Nans
         if ffill:
             self.state_history = self.state_history.ffill()
+
+    def _update_portfolio_value(self, index: pd.Timestamp, prices: dict[str, float]):
+        """Update the portfolio value at the given index using current prices.
+
+        Args:
+            index (pd.Timestamp): The timestamp for the update
+            prices (dict[str, float]): Dictionary mapping ticker to current price
+        """
+        if index not in self.state_history.index:
+            return
+
+        # Get current positions
+        current_state = self.state_history.loc[index]
+        cash = current_state["cash"]
+
+        # Calculate portfolio value: cash + sum of (position * price) for each ticker
+        portfolio_value = cash
+        for ticker in self.active_tickers:
+            if ticker in prices:
+                position = current_state[ticker]
+                portfolio_value += position * prices[ticker]
+
+        # Update portfolio value in state history
+        self.state_history.loc[index, "portfolio_value"] = portfolio_value
 
     def _update_history(self, ticker: str, price: float, quantity: float, order: Position, index: pd.Timestamp):
         """Update the history of the backtester.
@@ -198,16 +223,16 @@ class EventBacktester(ABC):
 
         # if train prices is not None, we want to make the full price history
         if self.train_prices is not None:
-            print(
-                f"Train prices have been previously loaded. Concatenating with test prices...")
+            logger.info(
+                "Train prices have been previously loaded. Concatenating with test prices...")
             full_price_history = pd.concat([self.train_prices, test_prices])
             start_loc = len(self.train_prices)
         else:
             full_price_history = test_prices
             start_loc = 0
 
-        # print the backtest range
-        print(
+        # log the backtest range
+        logger.info(
             f"Running backtest over {len(full_price_history.index[start_loc:])} bars from {full_price_history.index[start_loc]} to {full_price_history.index[-1]}...")
         # iterate through the index of the prices
         for index in full_price_history.index[start_loc:]:
@@ -219,19 +244,49 @@ class EventBacktester(ABC):
                 current_bar_prices = full_price_history.loc[index]
                 self.take_action(current_bar_prices)
 
+                # Update portfolio value with current prices
+                current_prices = {
+                    ticker: current_bar_prices[ticker] for ticker in self.active_tickers}
+                self._update_portfolio_value(index, current_prices)
+
             if close_positions:
                 if index == full_price_history.index[-2]:
-                    print(f"Closing positions at {index}...")
+                    logger.info(f"Closing positions at {index}...")
                     self.close_positions(full_price_history.iloc[-1])
                     break
 
-        print("Backtest complete.")
+        logger.info("Backtest complete.")
         # return the state history
         return self.get_state_history()
 
+    # analyze the backtest
+    def analyze_performance(self) -> pd.Series:
+        """
+        Analyze the performance of the backtest.
+        """
+        # get the state history
+        state_history = self.get_state_history()
+        start_portfolio_value = state_history.iloc[0]["portfolio_value"]
+        end_portfolio_value = state_history.iloc[-1]["portfolio_value"]
+        return_on_investment = 1 + \
+            ((end_portfolio_value - start_portfolio_value) / start_portfolio_value)
+
+        # calculate max drawdown using portfolio value
+        cumulative_return = (
+            1 + state_history["portfolio_value"].pct_change()).cumprod()
+        max_drawdown = cumulative_return.cummax() - cumulative_return
+        max_drawdown_percentage = max_drawdown.min()
+
+        return pd.Series({
+            "return_on_investment": return_on_investment,
+            "max_drawdown_percentage": max_drawdown_percentage,
+            "start_portfolio_value": start_portfolio_value,
+            "end_portfolio_value": end_portfolio_value
+        })
+
     # getters
 
-    def get_state(self) -> pd.DataFrame:
+    def get_state(self) -> pd.Series:
         """
         Get the current state of the checkbook.
         """
@@ -249,7 +304,7 @@ class EventBacktester(ABC):
         Cols will be the same as the state, index will be the same as the order history.
         """
         history = self.state_history.copy()
-        history["cash"] = history["cash"].round(2)
+        # history["cash"] = history["cash"].round(2)
         return history
 
     def load_train_prices(self, train_prices: pd.DataFrame):
@@ -391,3 +446,6 @@ if __name__ == "__main__":
 
     print(dash("ending state"))
     print(backtester.get_state())
+
+    print(dash("performance"))
+    print(backtester.analyze_performance())

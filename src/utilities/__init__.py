@@ -8,6 +8,15 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__)))))
 
+# Import the logger
+try:
+    from src import get_logger
+except ImportError:
+    from .. import get_logger
+
+# Create a logger for the utilities module
+logger = get_logger("utilities")
+
 load_dotenv()
 
 
@@ -94,9 +103,10 @@ def load_dataframe(
     """Load the data from a CSV and pickle file."""
     path = os.path.join(data_dir, filename)
     if os.path.exists(path + ".pkl"):
-        print(f"Loading {path + '.pkl'}")
+        logger.info(f"Loading {path + '.pkl'}")
         return pd.read_pickle(path + ".pkl")
     elif os.path.exists(path + ".csv"):
-        print(f"Loading {path + '.csv'}")
+        logger.info(f"Loading {path + '.csv'}")
         return pd.read_csv(path + ".csv")
+    logger.error(f"File {path} not found.")
     raise FileNotFoundError(f"File {path} not found.")

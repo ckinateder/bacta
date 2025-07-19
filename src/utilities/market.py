@@ -10,8 +10,13 @@ import warnings
 # path wrangling
 try:
     from src.utilities import *
+    from src import get_logger
 except ImportError:
     from __init__ import *
+    from .. import get_logger
+
+# Create a logger for the market module
+logger = get_logger("utilities.market")
 
 
 # global variables
@@ -26,15 +31,17 @@ SEC_TICKERS_FILENAME = "sec_tickers.json"
 
 def get_earnings_date(ticker: str) -> datetime.date:
     """Get the next earnings date for a given ticker."""
+    logger.info(f"Fetching earnings date for ticker: {ticker}")
     stock = yf.Ticker(ticker)
 
     # Fetch the calendar data, which includes upcoming events like the earnings date
     try:
         calendar = stock.calendar
         earnings_date = calendar["Earnings Date"][0]
+        logger.info(f"Found earnings date for {ticker}: {earnings_date}")
         return earnings_date
     except Exception as e:
-        print(f"An error occurred: {e}")
+        logger.error(f"Error fetching earnings date for {ticker}: {e}")
         return None
 
 
@@ -76,7 +83,10 @@ def load_sec_tickers(data_dir: str = os.getenv("DATA_DIR")) -> pd.DataFrame:
         pd.DataFrame: The CIK table. Index is cik, columns are name, ticker, and exchange.
     """
     path = os.path.join(data_dir, SEC_TICKERS_FILENAME)
+    logger.info(f"Loading SEC tickers from: {path}")
+
     if not os.path.exists(path):
+        logger.error(f"SEC tickers file not found: {path}")
         raise FileNotFoundError(f"File {path} not found.")
 
     # Load the JSON file
@@ -86,4 +96,5 @@ def load_sec_tickers(data_dir: str = os.getenv("DATA_DIR")) -> pd.DataFrame:
     # Convert the JSON data to a pandas DataFrame
     df = pd.DataFrame(data=data["data"], columns=data["fields"])
     df.set_index("cik", inplace=True)
+    logger.info(f"Loaded {len(df)} SEC tickers")
     return df

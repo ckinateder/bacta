@@ -11,11 +11,16 @@ from dotenv import load_dotenv
 # path wrangling
 try:
     from src.utilities import *
+    from src import get_logger
 except ImportError:
     from __init__ import *
+    from .. import get_logger
 
 from src.utilities import load_dataframe, save_dataframe, getenv
 from src.utilities.market import eastern
+
+# Create a logger for the bars module
+logger = get_logger("utilities.bars")
 
 
 load_dotenv()
@@ -38,6 +43,8 @@ def download_close_prices(tickers: list[str], start_date: datetime, end_date: da
     Returns:
         pd.DataFrame: The close prices for the given tickers, resampled to the given timeframe.
     """
+    logger.info(
+        f"Downloading close prices for {len(tickers)} tickers from {start_date} to {end_date} with timeframe {timeframe.value}")
     ALPACA_API_KEY = getenv("ALPACA_API_KEY")
     ALPACA_API_SECRET = getenv("ALPACA_API_SECRET")
     client = StockHistoricalDataClient(
@@ -65,7 +72,9 @@ def download_close_prices(tickers: list[str], start_date: datetime, end_date: da
         # get the close prices
         close_prices = bars["close"].unstack(level=0)
         save_dataframe(close_prices, filename + "_close_prices", data_dir)
+        logger.info(f"Saved close prices to {filename}_close_prices")
 
+    logger.info(f"Loading close prices from {filename}_close_prices")
     return load_dataframe(filename + "_close_prices", data_dir)
 
 

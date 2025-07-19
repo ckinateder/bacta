@@ -11,7 +11,7 @@ import pandas as pd
 import seaborn as sns
 from statsmodels.tsa.stattools import adfuller
 
-from __init__ import Position
+from __init__ import Position, get_logger, set_log_level
 from utilities import load_dataframe, load_json, save_dataframe, save_json, getenv
 from utilities.bars import BarUtils
 from utilities.market import get_earnings_date, eastern
@@ -25,6 +25,8 @@ plt.rcParams["figure.figsize"] = DEFAULT_FIGSIZE
 plt.rcParams["grid.linestyle"] = "--"
 plt.rcParams["grid.alpha"] = 0.7
 plt.rcParams["axes.grid"] = True
+
+logger = get_logger("pairs_selection")
 
 
 class PairSelector:
@@ -182,15 +184,15 @@ if __name__ == "__main__":
     test_prices = close_prices.iloc[split_index:]
 
     #########################################################
-    print("Using Cointegration to select the pairs:")
+    logger.info("Using Cointegration to select the pairs:")
 
     pair_selector = PairSelector()
     cointegration_results = pair_selector.select_pairs(
         train_prices, method="spread_adf"
     )
 
-    # print the spreads
-    print(cointegration_results)
+    # logger.info the spreads
+    logger.info(cointegration_results)
 
     # show the cointegration results as a heatmap
     plt.figure(figsize=(15, 10))
@@ -213,7 +215,7 @@ if __name__ == "__main__":
 
     # find the pair with the lowest p-value
     lowest_pvalue = cointegration_results.min().min()
-    print(f"The lowest p-value from cointegration is {lowest_pvalue}")
+    logger.info(f"The lowest p-value from cointegration is {lowest_pvalue}")
 
     # remove duplicaets
     lowest_pairs = list(
@@ -224,7 +226,7 @@ if __name__ == "__main__":
 
     # put bollinger bands
     for lowest_pair in lowest_pairs:
-        print(f"Plotting {lowest_pair}")
+        logger.info(f"Plotting {lowest_pair}")
         primary, secondary = lowest_pair
         prices = close_prices[[primary, secondary]]  # .iloc[-1000:]
         normalized_spread = BarUtils.put_normalized_spread(prices)

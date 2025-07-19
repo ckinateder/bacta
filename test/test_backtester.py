@@ -4,6 +4,10 @@ import numpy as np
 from datetime import datetime, timedelta
 from src.backtester import EventBacktester, Position
 
+# set logger level to warning
+from src import set_log_level
+set_log_level("WARNING")
+
 
 class TestBacktester(EventBacktester):
     """
@@ -120,9 +124,10 @@ class TestEventBacktester(unittest.TestCase):
         # Test with different cash amount
         self.backtester.initialize_bank(500.0)
         self.assertEqual(self.backtester.get_state()["cash"], 500.0)
+        self.assertEqual(self.backtester.get_state()["portfolio_value"], 500.0)
 
         # Check state history structure
-        expected_columns = ["cash"] + self.tickers
+        expected_columns = ["cash", "portfolio_value"] + self.tickers
         self.assertListEqual(
             list(self.backtester.state_history.columns), expected_columns)
 
@@ -251,7 +256,7 @@ class TestEventBacktester(unittest.TestCase):
         self.assertIsInstance(result, pd.DataFrame)
 
         # Check that state history has expected structure
-        expected_columns = ["cash"] + self.tickers
+        expected_columns = ["cash", "portfolio_value"] + self.tickers
         self.assertListEqual(list(result.columns), expected_columns)
 
     def test_get_state_history(self):
@@ -268,11 +273,49 @@ class TestEventBacktester(unittest.TestCase):
         history = self.backtester.get_state_history()
 
         # Check structure
-        expected_columns = ["cash"] + self.tickers
+        expected_columns = ["cash", "portfolio_value"] + self.tickers
         self.assertListEqual(list(history.columns), expected_columns)
 
         # Check that cash is rounded to 2 decimal places
         self.assertTrue(all(history["cash"].apply(lambda x: x == round(x, 2))))
+
+        # Check that portfolio_value column exists and has reasonable values
+        self.assertIn("portfolio_value", history.columns)
+        # Portfolio value should never be negative
+        self.assertTrue(all(history["portfolio_value"] >= 0))
+
+    def test_portfolio_value_calculation(self):
+        """Test that portfolio value is calculated correctly."""
+        ticker = "AAPL"
+        price = 150.0
+        quantity = 2.0
+        index = pd.Timestamp("2023-01-01 10:00:00")
+
+        # Place a buy order
+        self.backtester.place_buy_order(ticker, price, quantity, index)
+
+        # Update portfolio value with current price
+        self.backtester._update_portfolio_value(index, {ticker: price})
+
+        # Get state
+        state = self.backtester.get_state()
+
+        # Calculate expected portfolio value: cash + (position * price)
+        expected_cash = self.initial_cash - (price * quantity)
+        expected_portfolio_value = expected_cash + (quantity * price)
+
+        self.assertEqual(state["cash"], expected_cash)
+        self.assertEqual(state["portfolio_value"], expected_portfolio_value)
+
+        # Test with different price
+        new_price = 160.0
+        self.backtester._update_portfolio_value(index, {ticker: new_price})
+        state = self.backtester.get_state()
+
+        # Portfolio value should update with new price
+        expected_portfolio_value_new = expected_cash + (quantity * new_price)
+        self.assertEqual(state["portfolio_value"],
+                         expected_portfolio_value_new)
 
     def test_multiple_orders_same_ticker(self):
         """Test multiple orders for the same ticker."""

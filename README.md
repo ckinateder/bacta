@@ -11,7 +11,7 @@ Prototyping statistical arbitrage.
 
 ## Usage
 
-### Development
+## Development
 
 My `.env` file has the following fields:
 
@@ -24,19 +24,7 @@ ALPACA_API_KEY=
 ALPACA_API_SECRET=
 ```
 
-
-#### Directory Setup
-
-- `src/`
-    - `utilities/`
-        - `bars.py` - bar downloads, utilities, indicators, etc
-        - `market.py` - market dates
-        - `plotting.py` - visualizations
-    - `live.py` - live trading skeleton
-    - `backtester.py` - backtesting utilities
-    - `pairs_selection.py` - really just an experiment file right now
-
-#### Docker Setup
+### Docker Setup
 
 Run the following command to build the docker image:
 
@@ -51,6 +39,20 @@ docker run -it --rm  -v $(pwd):/app -w /app arbys
 ```
 **Note that you may have issues showing `matplotlib` images when inside the docker container; a workaround is to [just save the generated plot](https://matplotlib.org/stable/api/_as_gen/matplotlib.pyplot.savefig.html) instead.**
 
-## TODO
+### Directory Setup
 
-- [ ] Create a playground that is well documented for experimentation. rework utils. test cases
+- `src/`
+    - `utilities/`
+        - `bars.py` - bar downloads, utilities, indicators, etc
+        - `market.py` - market dates
+        - `plotting.py` - visualizations
+    - `live.py` - live trading skeleton
+    - `backtester.py` - backtesting utilities
+    - `pairs_selection.py` - really just an experiment file right now
+
+### Tests
+
+Run all tests with:
+```bash
+python -m unittest discover test
+```
