@@ -56,3 +56,7 @@ Run all tests with:
 ```bash
 python -m unittest discover test
 ```
+
+### Workflow
+
+My ideal workflow here is to rapidly prototype strategies using the `backtester.EventBacktester` class.

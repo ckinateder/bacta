@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from enum import Enum
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
@@ -12,6 +13,7 @@ except ImportError:
 
 from src.utilities import dash, load_dataframe
 from src.utilities.market import is_market_open
+from src.utilities.plotting import plt_show, DEFAULT_FIGSIZE
 
 # Get logger for this module
 logger = get_logger("backtester")
@@ -29,8 +31,11 @@ class EventBacktester(ABC):
     - update_step: update the indicators for the backtest at each time step. Optional.
     - take_action: make a decision based on the indicators and the prices.
 
-    If the user wants to load the train prices, they must call the load_train_prices method before running the backtest.
-    This calls the preload method with the train prices and sets the train_prices attribute.
+    The backtester is designed to run purely on the test dataset.
+    If the user wants to preload the train prices, they must call the load_train_prices method before running the backtest.
+    This calls the preload method with the train prices and sets the train_prices attribute. This is useful to ensure a seamless
+    transition from train to test data, like in production. Indicators and models relying on lags need historical data at the start
+    of the testing period.
 
     These structures are updated based on the events that occur, and are used to calculate the performance of the backtester.
     The user may want to override the run method to handle the events.
@@ -259,7 +264,6 @@ class EventBacktester(ABC):
         # return the state history
         return self.get_state_history()
 
-    # analyze the backtest
     def analyze_performance(self) -> pd.Series:
         """
         Analyze the performance of the backtest.
@@ -324,6 +328,8 @@ class EventBacktester(ABC):
             train_prices.index[0], pd.Timestamp), "Prices dataframe index must be a timestamp"
         self.train_prices = train_prices
         self.preload(train_prices)
+    ################################################################################################
+    ################################################################################################
 
     def preload(self, train_prices: pd.DataFrame):
         """
@@ -340,8 +346,7 @@ class EventBacktester(ABC):
             index: The index point of the prices.
         This is optional and can be overridden by the child class.
         """
-        raise NotImplementedError(
-            "This method must be overridden by the child class.")
+        pass
 
     @abstractmethod
     def take_action(self, prices: pd.Series):
@@ -357,8 +362,161 @@ class EventBacktester(ABC):
         raise NotImplementedError(
             "This method must be overridden by the child class.")
 
+    def plot_equity_curve(self, figsize: tuple = DEFAULT_FIGSIZE, title: str = "Equity Curve", save_plot: bool = True, show_plot: bool = False) -> plt.Figure:
+        """
+        Plot the equity curve of the backtester.
 
-class WalkForwardBacktester(EventBacktester):
+        Args:
+            figsize (tuple): Figure size for the plot
+            save_plot (bool): Whether to save the plot to file
+            show_plot (bool): Whether to display the plot
+            title (str): Title for the plot
+        """
+        state_history = self.get_state_history()
+
+        if state_history.empty:
+            logger.warning(
+                "No state history available for plotting equity curve")
+            return
+
+        # Create figure and axis
+        fig, ax = plt.subplots(figsize=figsize)
+
+        # Plot portfolio value over time
+        portfolio_values = state_history["portfolio_value"]
+        # Filter out the initial state (index 0) and only plot timestamp-indexed data
+        portfolio_values_filtered = portfolio_values[portfolio_values.index != 0]
+        ax.plot(portfolio_values_filtered.index, portfolio_values_filtered,
+                label="Portfolio Value", linewidth=2, color='blue')
+
+        # Add horizontal line for initial portfolio value
+        initial_value = portfolio_values_filtered.iloc[0]
+        ax.axhline(y=initial_value, color='red', linestyle='--', alpha=0.7,
+                   label=f'Initial Value: ${initial_value:.2f}')
+
+        # Calculate and display key metrics
+        final_value = portfolio_values_filtered.iloc[-1]
+        total_return = ((final_value - initial_value) / initial_value) * 100
+
+        # Calculate drawdown
+        cumulative_max = portfolio_values_filtered.cummax()
+        drawdown = ((portfolio_values_filtered -
+                    cumulative_max) / cumulative_max) * 100
+        max_drawdown = drawdown.min()
+
+        # Add text box with performance metrics
+        textstr = f'Total Return: {total_return:.2f}%\nMax Drawdown: {max_drawdown:.2f}%\nFinal Value: ${final_value:.2f}'
+        props = dict(boxstyle='round', facecolor='wheat', alpha=0.8)
+        ax.text(0.02, 0.98, textstr, transform=ax.transAxes, fontsize=10,
+                verticalalignment='top', bbox=props)
+
+        # Format the plot
+        ax.set_ylabel("Portfolio Value ($)")
+        ax.set_xlabel("Date")
+        ax.set_title(title)
+        ax.legend()
+        ax.grid(True, linestyle='--', alpha=0.7)
+
+        # Rotate x-axis labels for better readability
+        plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+
+        # Adjust layout to prevent label cutoff
+        plt.tight_layout()
+
+        if save_plot:
+            plt_show(prefix="equity_curve")
+
+        if show_plot:
+            plt.show()
+        else:
+            plt.close()
+
+        return fig
+
+    def plot_performance_analysis(self, figsize: tuple = (15, 12), save_plot: bool = True, show_plot: bool = True):
+        """
+        Create a comprehensive performance analysis plot with multiple subplots.
+
+        Args:
+            figsize (tuple): Figure size for the plot
+            save_plot (bool): Whether to save the plot to file
+            show_plot (bool): Whether to display the plot
+        """
+        state_history = self.get_state_history()
+
+        if state_history.empty:
+            logger.warning(
+                "No state history available for plotting performance analysis")
+            return
+
+        # Create figure with subplots
+        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=figsize)
+
+        portfolio_values = state_history["portfolio_value"]
+        # Filter out the initial state (index 0) and only plot timestamp-indexed data
+        portfolio_values_filtered = portfolio_values[portfolio_values.index != 0]
+
+        # Subplot 1: Cumulative Returns
+        returns = portfolio_values_filtered.pct_change().dropna()
+        cumulative_returns = (1 + returns).cumprod()
+        ax1.plot(cumulative_returns.index, cumulative_returns,
+                 label="Cumulative Returns", linewidth=2, color='green')
+        ax1.axhline(y=1, color='red', linestyle='--',
+                    alpha=0.7, label='Break-even')
+        ax1.set_title("Cumulative Returns")
+        ax1.set_ylabel("Cumulative Return")
+        ax1.legend()
+        ax1.grid(True, linestyle='--', alpha=0.7)
+
+        # Subplot 2: Drawdown
+        cumulative_max = portfolio_values_filtered.cummax()
+        drawdown = ((portfolio_values_filtered -
+                    cumulative_max) / cumulative_max) * 100
+        ax2.fill_between(drawdown.index, drawdown, 0,
+                         color='red', alpha=0.3, label='Drawdown')
+        ax2.plot(drawdown.index, drawdown, color='red', linewidth=1)
+        ax2.set_title("Drawdown")
+        ax2.set_ylabel("Drawdown (%)")
+        ax2.legend()
+        ax2.grid(True, linestyle='--', alpha=0.7)
+
+        # Subplot 3: Returns Distribution
+        ax3.hist(returns, bins=50, alpha=0.7, color='green', edgecolor='black')
+        ax3.axvline(returns.mean(), color='red', linestyle='--',
+                    label=f'Mean: {returns.mean():.4f}')
+        ax3.set_title("Returns Distribution")
+        ax3.set_xlabel("Return")
+        ax3.set_ylabel("Frequency")
+        ax3.legend()
+        ax3.grid(True, linestyle='--', alpha=0.7)
+
+        # Subplot 4: Equity Curve
+        ax4.plot(portfolio_values_filtered.index, portfolio_values_filtered,
+                 label="Portfolio Value", linewidth=2, color='blue')
+        initial_value = portfolio_values_filtered.iloc[0]
+        ax4.axhline(y=initial_value, color='red', linestyle='--', alpha=0.7,
+                    label=f'Initial Value: ${initial_value:.2f}')
+        ax4.set_title("Equity Curve")
+        ax4.set_ylabel("Portfolio Value ($)")
+        ax4.legend()
+        ax4.grid(True, linestyle='--', alpha=0.7)
+
+        # Rotate x-axis labels for all subplots
+        for ax in [ax1, ax2, ax4]:
+            plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+
+        plt.tight_layout()
+
+        if save_plot:
+            plt_show(prefix="performance_analysis")
+
+        if show_plot:
+            plt.show()
+        else:
+            plt.close()
+
+
+class WalkForwardBacktester(EventBacktester, ABC):
     """
     Walk forward backtester that runs the backtest for a given number of periods.
     """
@@ -449,3 +607,11 @@ if __name__ == "__main__":
 
     print(dash("performance"))
     print(backtester.analyze_performance())
+
+    # Plot the equity curve
+    print(dash("plotting equity curve"))
+    backtester.plot_equity_curve(title="SMA Strategy Equity Curve")
+
+    # Plot comprehensive performance analysis
+    print(dash("plotting performance analysis"))
+    backtester.plot_performance_analysis()
