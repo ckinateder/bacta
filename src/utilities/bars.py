@@ -122,7 +122,19 @@ def download_close_prices(tickers: list[str], start_date: datetime, end_date: da
     return load_dataframe(filename, data_dir)
 
 
-def split_bars(bars: pd.DataFrame, split_ratio: float = 0.8) -> tuple[pd.DataFrame, pd.DataFrame]:
+def separate_bars_by_symbol(bars: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """Separate the bars into individual ticker dataframes.
+    Args:
+        bars (pd.DataFrame): The bars to split. Multi-index with (ticker, timestamp) index and OHLCV columns.
+
+    Returns:
+        dict[str, pd.DataFrame]: A dictionary of ticker dataframes.
+    """
+    tickers = bars.index.get_level_values(0).unique()
+    return {ticker: bars.xs(ticker, level=0) for ticker in tickers}
+
+
+def split_bars_train_test(bars: pd.DataFrame, split_ratio: float = 0.8) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Split the bars into train and test sets.
 
     Args:
@@ -138,7 +150,7 @@ def split_bars(bars: pd.DataFrame, split_ratio: float = 0.8) -> tuple[pd.DataFra
     assert bars.index.nlevels == 2, "Bars must have a multi-index with (ticker, timestamp) index"
     tickers = bars.index.get_level_values(0).unique()
     # split the bars into individual ticker dataframes
-    ticker_bars = {ticker: bars.xs(ticker, level=0) for ticker in tickers}
+    ticker_bars = separate_bars_by_symbol(bars)
     # make sure each ticker has the same number of bars
     num_bars = ticker_bars[tickers[0]].shape[0]
     for ticker in tickers:
@@ -159,23 +171,6 @@ def split_bars(bars: pd.DataFrame, split_ratio: float = 0.8) -> tuple[pd.DataFra
 class BarUtils:
     def __init__(self):
         pass
-
-    @staticmethod
-    def put_normalized_spread(prices: pd.DataFrame) -> pd.DataFrame:
-        """Put the normalized spread on the prices. 
-        Args:
-            prices (pd.DataFrame): A dataframe of TWO tickers.
-
-        Returns:
-            pd.DataFrame: A dataframe with the normalized spread.
-        """
-        if len(prices.columns) != 2:
-            raise ValueError("The prices must have two tickers.")
-        primary, secondary = prices.columns
-        normalized_prices = prices.apply(lambda x: (x / x.mean()))
-        normalized_spread = normalized_prices[primary] - \
-            normalized_prices[secondary]
-        return normalized_spread
 
     @staticmethod
     def create_bollinger_bands(series: pd.DataFrame, rolling_window: int = 8, std_multiplier: float = 1) -> pd.DataFrame:
@@ -226,6 +221,13 @@ class BarUtils:
         For OHLC, use the last value in the time frame to fill forward.
         For volume and trade count, fill with 0.
         THIS IS FOR MULTIPLE TICKERS. Use groupby to apply to multiple tickers.
+
+        Args:
+            bars (pd.DataFrame): The bars to resample. Multi-index with (ticker, timestamp) index and OHLCV columns.
+            time_frame (timedelta, optional): The time frame to resample to. Defaults to timedelta(hours=1).
+
+        Returns:
+            pd.DataFrame: The resampled bars. Multi-index with (ticker, timestamp) index and OHLCV columns.
         """
         # Create a list to store resampled data for each ticker
         resampled_data = []
@@ -274,6 +276,13 @@ class BarUtils:
         For OHLC, use the last value in the time frame to fill forward.
         For volume and trade count, fill with 0.
         THIS IS FOR ONE TICKER. Use groupby to apply to multiple tickers.
+
+        Args:
+            bars (pd.DataFrame): The bars to resample. Single index with timestamp index and OHLCV columns.
+            time_frame (timedelta, optional): The time frame to resample to. Defaults to timedelta(hours=1).
+
+        Returns:
+            pd.DataFrame: The resampled bars. Single index with timestamp index and OHLCV columns.
         """
         # resample the bars
         part1 = bars[["open", "high", "low", "close", "vwap"]]

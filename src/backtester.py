@@ -6,7 +6,8 @@ from alpaca.data.timeframe import TimeFrame
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from yfinance.base import PriceHistory
+from talib import ATR, EMA, RSI
+from tqdm import tqdm, trange
 
 # path wrangling
 try:
@@ -15,7 +16,7 @@ except ImportError:
     from __init__ import Position, get_logger
 
 from src.utilities import dash, load_dataframe
-from src.utilities.bars import download_bars, download_close_prices, split_bars
+from src.utilities.bars import download_bars, download_close_prices, split_bars_train_test
 from src.utilities.market import is_market_open
 from src.utilities.plotting import DEFAULT_FIGSIZE, plt_show
 
@@ -258,20 +259,20 @@ class EventBacktester(ABC):
             logger.info(
                 "Train bars have been previously loaded. Concatenating with test bars...")
             full_bars = pd.concat([self.train_bars, test_bars])
-            start_loc = len(self.train_bars)
+            start_loc = len(self.train_bars.index.get_level_values(1).unique())
         else:
             full_bars = test_bars
             start_loc = 0
 
         # get the timestamps
-        timestamps = full_bars.index.get_level_values(1)
+        timestamps = full_bars.index.get_level_values(1).unique()
 
         # log the backtest range
         logger.info(
             f"Running backtest over {len(full_bars.index[start_loc:])} bars from {timestamps[start_loc]} to {timestamps[-1]}...")
 
         # iterate through the index of the bars
-        for index in timestamps[start_loc:]:
+        for index in tqdm(timestamps[start_loc:], desc="Backtesting", leave=False, dynamic_ncols=True, total=len(timestamps[start_loc:]), position=0):
             # perform update step
             self.update_step(full_bars, index)
             if ignore_market_open or is_market_open(index):
@@ -288,8 +289,6 @@ class EventBacktester(ABC):
                 self.close_positions(full_bars.xs(
                     index, level=1).loc[:, "close"], index)
                 break
-
-        logger.info("Backtest complete.")
         # return the state history
         return self.get_state_history()
 
@@ -431,7 +430,7 @@ class EventBacktester(ABC):
 
         return fig
 
-    def plot_performance_analysis(self, figsize: tuple = (20, 10), save_plot: bool = True, show_plot: bool = True):
+    def plot_performance_analysis(self, figsize: tuple = (20, 10), save_plot: bool = True, show_plot: bool = False, title: str = "Performance Analysis") -> plt.Figure:
         """
         Create a comprehensive performance analysis plot with multiple subplots.
 
@@ -439,6 +438,7 @@ class EventBacktester(ABC):
             figsize (tuple): Figure size for the plot
             save_plot (bool): Whether to save the plot to file
             show_plot (bool): Whether to display the plot
+            title (str): Title for the plot
         """
         state_history = self.get_state_history()
 
@@ -450,6 +450,7 @@ class EventBacktester(ABC):
         # Create figure with subplots (2 rows, 3 columns)
         fig, ((ax1, ax2, ax3), (ax4, ax5, ax6)
               ) = plt.subplots(2, 3, figsize=figsize)
+        fig.suptitle(title)
 
         portfolio_values = state_history["portfolio_value"]
         # Filter out the initial state (index 0) and only plot timestamp-indexed data
@@ -562,6 +563,130 @@ class EventBacktester(ABC):
             plt.show()
         else:
             plt.close()
+
+        return fig
+
+    def plot_trade_history(self, figsize: tuple = (20, 12), save_plot: bool = True, show_plot: bool = False, title: str = "Trade History") -> plt.Figure:
+        """
+        Plot the price history with trade markers showing buy and sell orders.
+
+        Args:
+            figsize (tuple): Figure size for the plot
+            save_plot (bool): Whether to save the plot to file
+            show_plot (bool): Whether to display the plot
+            title (str): Title for the plot
+        """
+        order_history = self.get_history()
+
+        if order_history.empty:
+            logger.warning(
+                "No order history available for plotting trade history")
+            return None
+
+        if not hasattr(self, 'test_bars') or self.test_bars is None:
+            logger.warning("No test bars available for plotting trade history")
+            return None
+
+        # Create figure with subplots - one for each ticker
+        num_tickers = len(self.active_tickers)
+        fig, axes = plt.subplots(num_tickers, 1, figsize=figsize, sharex=True)
+        fig.suptitle(title)
+
+        # Handle single ticker case
+        if num_tickers == 1:
+            axes = [axes]
+
+        # Only plot the test bars, not the train bars. no trades are made on the train bars.
+        full_bars = self.test_bars
+
+        for i, ticker in enumerate(self.active_tickers):
+            ax = axes[i]
+
+            # Get price data for this ticker
+            if ticker in full_bars.index.get_level_values(0):
+                ticker_bars = full_bars.xs(ticker, level=0)
+
+                # Plot price history
+                ax.plot(ticker_bars.index, ticker_bars['close'],
+                        label=f'{ticker} Close Price', linewidth=1.5, color='blue', alpha=0.7)
+
+                # Get trades for this ticker
+                ticker_trades = order_history[order_history['ticker'] == ticker]
+
+                if not ticker_trades.empty:
+                    # Separate buy and sell orders
+                    buy_orders = ticker_trades[ticker_trades['position']
+                                               == Position.LONG.value]
+                    sell_orders = ticker_trades[ticker_trades['position']
+                                                == Position.SHORT.value]
+
+                    # Plot buy orders (green triangles pointing up)
+                    if not buy_orders.empty:
+                        ax.scatter(buy_orders.index, buy_orders['price'],
+                                   marker='^', s=100, color='green', alpha=0.8,
+                                   label=f'Buy Orders ({len(buy_orders)})', zorder=5)
+
+                        # Add quantity annotations for buy orders
+                        for idx, row in buy_orders.iterrows():
+                            ax.annotate(f"{row['quantity']:.0f}",
+                                        (idx, row['price']),
+                                        xytext=(5, 10), textcoords='offset points',
+                                        fontsize=8, color='green', weight='bold')
+
+                    # Plot sell orders (red triangles pointing down)
+                    if not sell_orders.empty:
+                        ax.scatter(sell_orders.index, sell_orders['price'],
+                                   marker='v', s=100, color='red', alpha=0.8,
+                                   label=f'Sell Orders ({len(sell_orders)})', zorder=5)
+
+                        # Add quantity annotations for sell orders
+                        for idx, row in sell_orders.iterrows():
+                            ax.annotate(f"{row['quantity']:.0f}",
+                                        (idx, row['price']),
+                                        xytext=(5, -15), textcoords='offset points',
+                                        fontsize=8, color='red', weight='bold')
+
+                # Format the subplot
+                ax.set_title(
+                    f'{ticker} Price History with Trade Markers', fontsize=12, fontweight='bold')
+                ax.set_ylabel('Price ($)', fontsize=10)
+                ax.legend(loc='upper left')
+                ax.grid(True, linestyle='--', alpha=0.3)
+
+                # Add summary statistics
+                if not ticker_trades.empty:
+                    total_trades = len(ticker_trades)
+                    total_volume = ticker_trades['quantity'].sum()
+                    avg_price = (
+                        ticker_trades['price'] * ticker_trades['quantity']).sum() / ticker_trades['quantity'].sum()
+
+                    stats_text = f'Trades: {total_trades} | Volume: {total_volume:.0f} | Avg Price: ${avg_price:.2f}'
+                    ax.text(0.02, 0.98, stats_text, transform=ax.transAxes,
+                            fontsize=9, verticalalignment='top',
+                            bbox=dict(boxstyle='round', facecolor='lightgray', alpha=0.8))
+            else:
+                ax.text(0.5, 0.5, f'No data available for {ticker}',
+                        transform=ax.transAxes, ha='center', va='center')
+                ax.set_title(f'{ticker} - No Data Available')
+
+        # Set x-axis label for the bottom subplot only
+        axes[-1].set_xlabel('Date', fontsize=10)
+
+        # Rotate x-axis labels for better readability
+        for ax in axes:
+            plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+
+        plt.tight_layout()
+
+        if save_plot:
+            plt_show(prefix="trade_history")
+
+        if show_plot:
+            plt.show()
+        else:
+            plt.close()
+
+        return fig
 
     ################################################################################################
     ################################################################################################
@@ -677,8 +802,53 @@ class SMABacktester(EventBacktester):
                                  ticker, close_prices[ticker], 1)
 
 
+class KeltnerChannelBacktester(EventBacktester):
+    """
+    Backtester that uses the Keltner Channel to make decisions.
+    """
+
+    def __init__(self, active_tickers, cash):
+        super().__init__(active_tickers, cash)
+        self.keltner_channel_period = 21
+
+    def preload(self, bars: pd.DataFrame):
+        """
+        Preload the indicators for the backtest.
+        """
+        self.middle_bands = {ticker: EMA(bars.xs(
+            ticker, level=0).loc[:, "close"], timeperiod=self.keltner_channel_period) for ticker in self.active_tickers}
+        self.upper_bands = {ticker: self.middle_bands[ticker] + 2 * ATR(bars.xs(ticker, level=0).loc[:, "high"], bars.xs(
+            ticker, level=0).loc[:, "low"], bars.xs(ticker, level=0).loc[:, "close"], timeperiod=self.keltner_channel_period) for ticker in self.active_tickers}
+        self.lower_bands = {ticker: self.middle_bands[ticker] - 2 * ATR(bars.xs(ticker, level=0).loc[:, "high"], bars.xs(
+            ticker, level=0).loc[:, "low"], bars.xs(ticker, level=0).loc[:, "close"], timeperiod=self.keltner_channel_period) for ticker in self.active_tickers}
+
+    def update_step(self, bars: pd.DataFrame, index: pd.Timestamp):
+        """
+        Update the state of the backtester.
+        """
+        self.middle_bands = {ticker: EMA(bars.xs(
+            ticker, level=0).loc[:, "close"], timeperiod=self.keltner_channel_period) for ticker in self.active_tickers}
+        self.upper_bands = {ticker: self.middle_bands[ticker] + 2 * ATR(bars.xs(ticker, level=0).loc[:, "high"], bars.xs(
+            ticker, level=0).loc[:, "low"], bars.xs(ticker, level=0).loc[:, "close"], timeperiod=self.keltner_channel_period) for ticker in self.active_tickers}
+        self.lower_bands = {ticker: self.middle_bands[ticker] - 2 * ATR(bars.xs(ticker, level=0).loc[:, "high"], bars.xs(
+            ticker, level=0).loc[:, "low"], bars.xs(ticker, level=0).loc[:, "close"], timeperiod=self.keltner_channel_period) for ticker in self.active_tickers}
+
+    def take_action(self, bar: pd.DataFrame, index: pd.Timestamp):
+        """
+        Make a decision based on the prices.
+        """
+        close_prices = bar.loc[:, "close"]
+        for ticker in self.active_tickers:
+            if close_prices[ticker] > self.upper_bands[ticker][index]:
+                self.place_order(Position.SHORT, index,
+                                 ticker, close_prices[ticker], 1)
+            elif close_prices[ticker] < self.lower_bands[ticker][index]:
+                self.place_order(Position.LONG, index,
+                                 ticker, close_prices[ticker], 1)
+
+
 if __name__ == "__main__":
-    backtester = SMABacktester(["NEE", "EXC"], cash=1000)
+    tickers = ["CMS", "DTE"]
     utility_tickers = [
         "NEE", "EXC", "D", "PCG", "XEL",
         "ED", "WEC", "DTE", "PPL", "AEE",
@@ -687,10 +857,11 @@ if __name__ == "__main__":
         "DUK", "SRE", "ATO", "NRG",
     ]
 
-    bars = download_bars(["NEE", "EXC"], start_date=datetime(
+    bars = download_bars(tickers, start_date=datetime(
         2024, 1, 1), end_date=datetime.now() - timedelta(minutes=15), timeframe=TimeFrame.Hour)
 
-    train_bars, test_bars = split_bars(bars, split_ratio=0.9)
+    train_bars, test_bars = split_bars_train_test(bars, split_ratio=0.95)
+    backtester = KeltnerChannelBacktester(tickers, cash=9000)
     backtester.load_train_bars(train_bars)
     backtester.run(test_bars, ignore_market_open=False)
 
@@ -699,16 +870,12 @@ if __name__ == "__main__":
     print(dash("state history"))
     print(backtester.get_state_history())
 
-    print(dash("ending state"))
-    print(backtester.get_state())
-
     print(dash("performance"))
     print(backtester.analyze_performance())
 
     # Plot the equity curve
-    print(dash("plotting equity curve"))
+    print(dash("plotting..."))
     backtester.plot_equity_curve(title="SMA Strategy Equity Curve")
-
-    # Plot comprehensive performance analysis
-    print(dash("plotting performance analysis"))
-    backtester.plot_performance_analysis()
+    backtester.plot_performance_analysis(
+        title="SMA Strategy Performance Analysis")
+    backtester.plot_trade_history(title="SMA Strategy Trade History")

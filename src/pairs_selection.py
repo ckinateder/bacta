@@ -13,7 +13,7 @@ from statsmodels.tsa.stattools import adfuller
 
 from __init__ import Position, get_logger, set_log_level
 from utilities import load_dataframe, load_json, save_dataframe, save_json, getenv
-from utilities.bars import BarUtils
+from utilities.bars import BarUtils, download_close_prices
 from utilities.market import get_earnings_date, eastern
 from utilities.plotting import plot_price_data, plt_show, DEFAULT_FIGSIZE
 load_dotenv()
@@ -167,13 +167,14 @@ if __name__ == "__main__":
         # save the close prices
         save_dataframe(close_prices, "utility_close_prices")
 
-        earnings_dates = {
-            ticker: get_earnings_date(ticker) for ticker in utility_tickers
-        }
-        save_json(earnings_dates, "utility_earnings_dates")
+        # earnings_dates = {
+        #    ticker: get_earnings_date(ticker) for ticker in utility_tickers
+        # }
+        # save_json(earnings_dates, "utility_earnings_dates")
 
-    close_prices = load_dataframe("utility_close_prices")
-    earnings_dates = load_json("utility_earnings_dates")
+    close_prices = download_close_prices(
+        utility_tickers, start_date, end_date, timeframe)
+    # earnings_dates = load_json("utility_earnings_dates")
     plot_price_data(close_prices, "Utility Price Data")
     plt_show(prefix="utility_price_data")
 
@@ -229,7 +230,9 @@ if __name__ == "__main__":
         logger.info(f"Plotting {lowest_pair}")
         primary, secondary = lowest_pair
         prices = close_prices[[primary, secondary]]  # .iloc[-1000:]
-        normalized_spread = BarUtils.put_normalized_spread(prices)
+        normalized_prices = prices.apply(lambda x: (x / x.mean()))
+        normalized_spread = normalized_prices[primary] - \
+            normalized_prices[secondary]
         bands = BarUtils.create_bollinger_bands(normalized_spread)
         bands["position"] = np.where(normalized_spread > bands["upper_band"], Position.LONG.value, np.where(
             normalized_spread < bands["lower_band"], Position.SHORT.value, Position.NEUTRAL.value))
