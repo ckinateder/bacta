@@ -122,6 +122,40 @@ def download_close_prices(tickers: list[str], start_date: datetime, end_date: da
     return load_dataframe(filename, data_dir)
 
 
+def split_bars(bars: pd.DataFrame, split_ratio: float = 0.8) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Split the bars into train and test sets.
+
+    Args:
+        bars (pd.DataFrame): The bars to split. Multi-index with (ticker, timestamp) index and OHLCV columns.
+        split_ratio (float, optional): The ratio of the bars to split into train and test. Defaults to 0.8.
+
+    Raises:
+        ValueError: If the bars are not a multi-index dataframe.
+
+    Returns:
+        tuple[pd.DataFrame, pd.DataFrame]: The train and test bars.
+    """
+    assert bars.index.nlevels == 2, "Bars must have a multi-index with (ticker, timestamp) index"
+    tickers = bars.index.get_level_values(0).unique()
+    # split the bars into individual ticker dataframes
+    ticker_bars = {ticker: bars.xs(ticker, level=0) for ticker in tickers}
+    # make sure each ticker has the same number of bars
+    num_bars = ticker_bars[tickers[0]].shape[0]
+    for ticker in tickers:
+        assert ticker_bars[ticker].shape[
+            0] == num_bars, f"Bars for {ticker} must have the same number of bars, try resampling and/or changing the timeframe"
+
+    # split the bars into train and test
+    train_bars = {ticker: ticker_bars[ticker].iloc[:int(
+        len(ticker_bars[ticker]) * split_ratio)] for ticker in tickers}
+    test_bars = {ticker: ticker_bars[ticker].iloc[int(
+        len(ticker_bars[ticker]) * split_ratio):] for ticker in tickers}
+    # recombine the bars into a multi-index dataframe
+    train_bars = pd.concat(train_bars, axis=0)
+    test_bars = pd.concat(test_bars, axis=0)
+    return train_bars, test_bars
+
+
 class BarUtils:
     def __init__(self):
         pass

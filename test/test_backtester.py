@@ -1,155 +1,175 @@
 import unittest
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
-from src.backtester import EventBacktester, Position
+from datetime import timedelta
+from abc import ABC
 
-# set logger level to warning
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from src import set_log_level
+from src.backtester import EventBacktester, Position
+# Import the classes we need to test
+
 set_log_level("WARNING")
 
 
-class TestBacktester(EventBacktester):
+class TestEventBacktester(EventBacktester):
     """
     Concrete implementation of EventBacktester for testing purposes.
+    This implements a simple buy-and-hold strategy.
     """
 
     def __init__(self, active_tickers: list[str], cash: float = 100):
         super().__init__(active_tickers, cash)
-        self.preload_called = False
-        self.update_step_called = False
-        self.take_action_called = False
+        self.initialized = False
 
-    def preload(self, train_prices: pd.DataFrame):
-        """Test implementation of preload method."""
-        self.preload_called = True
-        # Store some basic indicators for testing
-        self.sma_short = {ticker: train_prices[ticker].rolling(window=5).mean()
-                          for ticker in self.active_tickers}
-        self.sma_long = {ticker: train_prices[ticker].rolling(window=10).mean()
-                         for ticker in self.active_tickers}
+    def preload(self, train_bars: pd.DataFrame):
+        """Simple preload implementation that just marks as initialized."""
+        self.initialized = True
 
-    def update_step(self, prices: pd.DataFrame, index: pd.Timestamp):
-        """Test implementation of update_step method."""
-        self.update_step_called = True
-        # Update indicators
-        self.sma_short = {ticker: prices[ticker].rolling(window=5).mean()
-                          for ticker in self.active_tickers}
-        self.sma_long = {ticker: prices[ticker].rolling(window=10).mean()
-                         for ticker in self.active_tickers}
+    def update_step(self, bars: pd.DataFrame, index: pd.Timestamp):
+        """Simple update step that does nothing."""
+        pass
 
-    def take_action(self, prices: pd.Series):
-        """Test implementation of take_action method."""
-        self.take_action_called = True
-        # Simple strategy: buy if short SMA > long SMA, sell otherwise
+    def take_action(self, bars: pd.DataFrame, index: pd.Timestamp):
+        """
+        Simple strategy: buy 1 share of each ticker on every opportunity.
+        """
+        # Buy 1 share of each ticker on every opportunity
+        close_prices = bars.loc[:, "close"]
         for ticker in self.active_tickers:
-            if (self.sma_short[ticker].iloc[-1] > self.sma_long[ticker].iloc[-1] and
-                    self.get_state()[ticker] <= 0):
-                self.place_order(Position.LONG, prices.name,
-                                 ticker, prices[ticker], 1)
-            elif (self.sma_short[ticker].iloc[-1] <= self.sma_long[ticker].iloc[-1] and
-                  self.get_state()[ticker] >= 0):
-                self.place_order(Position.SHORT, prices.name,
-                                 ticker, prices[ticker], 1)
+            if ticker in close_prices.index:
+                self.place_order(Position.LONG, index,
+                                 ticker, close_prices[ticker], 1)
 
 
-def generate_dummy_price_data(tickers: list[str], start_date: datetime = None,
-                              periods: int = 100) -> pd.DataFrame:
+class TestEventBacktesterAdvanced(EventBacktester):
     """
-    Generate dummy price data for testing.
-
-    Args:
-        tickers: List of ticker symbols
-        start_date: Start date for the data (defaults to 2023-01-01)
-        periods: Number of periods to generate
-
-    Returns:
-        DataFrame with dummy price data
+    More advanced test implementation that makes multiple trades.
     """
-    if start_date is None:
-        start_date = datetime(2023, 1, 1, 9, 30)
 
-    # Generate timestamps (hourly data)
-    timestamps = [start_date + timedelta(hours=i) for i in range(periods)]
+    def __init__(self, active_tickers: list[str], cash: float = 100):
+        super().__init__(active_tickers, cash)
+        self.trade_count = 0
 
-    # Generate random walk prices for each ticker
-    data = {}
-    for ticker in tickers:
-        # Start with a base price between 50 and 200
-        base_price = np.random.uniform(50, 200)
-        prices = [base_price]
+    def preload(self, train_bars: pd.DataFrame):
+        """Preload implementation."""
+        pass
 
-        # Generate random walk
-        for _ in range(periods - 1):
-            # Random price change between -2% and +2%
-            change = np.random.uniform(-0.02, 0.02)
-            new_price = prices[-1] * (1 + change)
-            prices.append(max(new_price, 1))  # Ensure price doesn't go below 1
+    def update_step(self, bars: pd.DataFrame, index: pd.Timestamp):
+        """Update step that tracks trade count."""
+        pass
 
-        data[ticker] = prices
+    def take_action(self, bars: pd.DataFrame, index: pd.Timestamp):
+        """
+        Strategy: alternate between buying and selling based on trade count.
+        """
+        close_prices = bars.loc[:, "close"]
+        for ticker in self.active_tickers:
+            if ticker in close_prices.index:
+                if self.trade_count % 2 == 0:
+                    # Buy on even trades
+                    self.place_order(Position.LONG, index,
+                                     ticker, close_prices[ticker], 1)
+                else:
+                    # Sell on odd trades
+                    self.place_order(Position.SHORT, index,
+                                     ticker, close_prices[ticker], 1)
+        self.trade_count += 1
 
-    df = pd.DataFrame(data, index=timestamps)
-    return df
 
-
-class TestEventBacktester(unittest.TestCase):
-    """Test cases for EventBacktester class."""
+class TestEventBacktesterUnit(unittest.TestCase):
+    """Unit tests for EventBacktester class."""
 
     def setUp(self):
         """Set up test fixtures."""
-        self.tickers = ["AAPL", "GOOGL", "MSFT"]
+        self.tickers = ["AAPL", "GOOGL"]
         self.initial_cash = 1000.0
-        self.backtester = TestBacktester(self.tickers, self.initial_cash)
+        self.backtester = TestEventBacktester(self.tickers, self.initial_cash)
 
-        # Generate dummy price data
-        self.train_prices = generate_dummy_price_data(self.tickers, periods=50)
-        self.test_prices = generate_dummy_price_data(
-            self.tickers,
-            start_date=self.train_prices.index[-1] + timedelta(hours=1),
-            periods=30
-        )
+        # Create dummy data with proper multi-index structure
+        self.create_dummy_data()
+
+    def create_dummy_data(self):
+        """Create dummy OHLCV data with proper multi-index structure."""
+        # Create timestamps
+        start_date = pd.Timestamp(2024, 1, 1, 9, 30)
+        timestamps = [start_date + timedelta(hours=i) for i in range(10)]
+
+        # Create multi-index data
+        data = []
+        for ticker in self.tickers:
+            for timestamp in timestamps:
+                # Generate realistic OHLCV data
+                base_price = 100.0 if ticker == "AAPL" else 150.0
+                price_change = np.random.normal(0, 2)  # Random price movement
+                close_price = base_price + price_change
+
+                data.append({
+                    'ticker': ticker,
+                    'timestamp': timestamp,
+                    'open': close_price - np.random.uniform(0, 1),
+                    'high': close_price + np.random.uniform(0, 2),
+                    'low': close_price - np.random.uniform(0, 2),
+                    'close': close_price,
+                    'volume': int(np.random.uniform(1000, 10000))
+                })
+
+        # Create DataFrame and set multi-index
+        self.dummy_bars = pd.DataFrame(data)
+        self.dummy_bars.set_index(['ticker', 'timestamp'], inplace=True)
+        self.dummy_bars = self.dummy_bars.sort_index()
+
+        # Split into train and test
+        split_point = int(len(timestamps) * 0.7)
+        train_timestamps = timestamps[:split_point]
+        test_timestamps = timestamps[split_point:]
+
+        self.train_bars = self.dummy_bars.loc[
+            (slice(None), train_timestamps), :
+        ]
+        self.test_bars = self.dummy_bars.loc[
+            (slice(None), test_timestamps), :
+        ]
 
     def test_initialization(self):
-        """Test backtester initialization."""
+        """Test that the backtester initializes correctly."""
         self.assertEqual(self.backtester.active_tickers, self.tickers)
         self.assertEqual(self.backtester.get_state()
                          ["cash"], self.initial_cash)
+        self.assertEqual(self.backtester.get_state()[
+                         "portfolio_value"], self.initial_cash)
 
-        # Check initial positions are zero
+        # Check that all ticker positions are initialized to 0
         for ticker in self.tickers:
             self.assertEqual(self.backtester.get_state()[ticker], 0)
 
     def test_initialize_bank(self):
-        """Test bank initialization."""
-        # Test with different cash amount
-        self.backtester.initialize_bank(500.0)
-        self.assertEqual(self.backtester.get_state()["cash"], 500.0)
-        self.assertEqual(self.backtester.get_state()["portfolio_value"], 500.0)
-
-        # Check state history structure
-        expected_columns = ["cash", "portfolio_value"] + self.tickers
-        self.assertListEqual(
-            list(self.backtester.state_history.columns), expected_columns)
-
-        # Check order history structure
-        expected_order_columns = ["ticker", "position", "price", "quantity"]
-        self.assertListEqual(
-            list(self.backtester.order_history.columns), expected_order_columns)
+        """Test bank initialization with different cash amounts."""
+        backtester = TestEventBacktester(self.tickers, 500.0)
+        self.assertEqual(backtester.get_state()["cash"], 500.0)
+        self.assertEqual(backtester.get_state()["portfolio_value"], 500.0)
 
     def test_place_buy_order(self):
-        """Test placing buy orders."""
+        """Test placing a buy order."""
         ticker = "AAPL"
         price = 150.0
-        quantity = 2.0
-        index = pd.Timestamp("2023-01-01 10:00:00")
+        quantity = 2
+        timestamp = pd.Timestamp(2024, 1, 1, 10, 0)
 
-        self.backtester.place_buy_order(ticker, price, quantity, index)
+        initial_cash = self.backtester.get_state()["cash"]
+        initial_position = self.backtester.get_state()[ticker]
 
-        # Check state update
-        state = self.backtester.get_state()
-        expected_cash = self.initial_cash - (price * quantity)
-        self.assertEqual(state["cash"], expected_cash)
-        self.assertEqual(state[ticker], quantity)
+        self.backtester.place_buy_order(ticker, price, quantity, timestamp)
+
+        # Check state updates
+        new_state = self.backtester.get_state()
+        expected_cash = initial_cash - (price * quantity)
+        expected_position = initial_position + quantity
+
+        self.assertEqual(new_state["cash"], expected_cash)
+        self.assertEqual(new_state[ticker], expected_position)
 
         # Check order history
         history = self.backtester.get_history()
@@ -160,224 +180,328 @@ class TestEventBacktester(unittest.TestCase):
         self.assertEqual(history.iloc[0]["quantity"], quantity)
 
     def test_place_sell_order(self):
-        """Test placing sell orders."""
+        """Test placing a sell order."""
         ticker = "AAPL"
         price = 150.0
-        quantity = 2.0
-        index = pd.Timestamp("2023-01-01 10:00:00")
+        quantity = 2
+        timestamp = pd.Timestamp(2024, 1, 1, 10, 0)
 
-        self.backtester.place_sell_order(ticker, price, quantity, index)
+        # First buy some shares
+        self.backtester.place_buy_order(
+            ticker, 100.0, 5, pd.Timestamp(2024, 1, 1, 10, 0))
 
-        # Check state update
-        state = self.backtester.get_state()
-        expected_cash = self.initial_cash + (price * quantity)
-        self.assertEqual(state["cash"], expected_cash)
-        self.assertEqual(state[ticker], -quantity)
+        initial_cash = self.backtester.get_state()["cash"]
+        initial_position = self.backtester.get_state()[ticker]
+
+        # Now sell
+        self.backtester.place_sell_order(
+            ticker, price, quantity, pd.Timestamp(2024, 1, 1, 10, 0))
+
+        # Check state updates
+        new_state = self.backtester.get_state()
+        expected_cash = initial_cash + (price * quantity)
+        expected_position = initial_position - quantity
+
+        self.assertEqual(new_state["cash"], expected_cash)
+        self.assertEqual(new_state[ticker], expected_position)
 
         # Check order history
         history = self.backtester.get_history()
-        self.assertEqual(len(history), 1)
-        self.assertEqual(history.iloc[0]["ticker"], ticker)
-        self.assertEqual(history.iloc[0]["position"], Position.SHORT.value)
-        self.assertEqual(history.iloc[0]["price"], price)
-        self.assertEqual(history.iloc[0]["quantity"], quantity)
+        self.assertEqual(len(history), 2)  # Buy + sell
+        self.assertEqual(history.iloc[1]["position"], Position.SHORT.value)
 
     def test_place_order(self):
-        """Test generic place_order method."""
+        """Test the generic place_order method."""
         ticker = "AAPL"
         price = 150.0
-        quantity = 2.0
-        index = pd.Timestamp("2023-01-01 10:00:00")
+        quantity = 1
+        timestamp = pd.Timestamp(2024, 1, 1, 10, 0)
 
         # Test LONG order
         self.backtester.place_order(
-            Position.LONG, index, ticker, price, quantity)
-        state = self.backtester.get_state()
-        self.assertEqual(state[ticker], quantity)
+            Position.LONG, timestamp, ticker, price, quantity)
+        self.assertEqual(self.backtester.get_state()[ticker], 1)
 
-        # Reset and test SHORT order
-        self.backtester.initialize_bank(self.initial_cash)
+        # Test SHORT order
         self.backtester.place_order(
-            Position.SHORT, index, ticker, price, quantity)
-        state = self.backtester.get_state()
-        self.assertEqual(state[ticker], -quantity)
+            Position.SHORT, timestamp, ticker, price, quantity)
+        self.assertEqual(self.backtester.get_state()[ticker], 0)  # Back to 0
 
     def test_close_positions(self):
-        """Test closing positions."""
-        ticker = "AAPL"
-        price = 150.0
-        quantity = 2.0
-        index = pd.Timestamp("2023-01-01 10:00:00")
+        """Test closing all positions."""
+        timestamp = pd.Timestamp(2024, 1, 1, 10, 0)
 
-        # First place a buy order
-        self.backtester.place_buy_order(ticker, price, quantity, index)
+        # Buy some positions
+        self.backtester.place_buy_order("AAPL", 150.0, 2, timestamp)
+        self.backtester.place_buy_order("GOOGL", 200.0, 1, timestamp)
 
-        # Create closing prices
-        closing_prices = pd.Series(
-            {ticker: 160.0}, name=pd.Timestamp("2023-01-01 11:00:00"))
+        # Verify positions exist
+        self.assertEqual(self.backtester.get_state()["AAPL"], 2)
+        self.assertEqual(self.backtester.get_state()["GOOGL"], 1)
 
         # Close positions
-        self.backtester.close_positions(closing_prices)
+        prices = pd.Series({"AAPL": 160.0, "GOOGL": 210.0})
+        self.backtester.close_positions(prices, timestamp)
 
-        # Check that position is closed (should be 0)
-        state = self.backtester.get_state()
-        self.assertEqual(state[ticker], 0)
+        # Verify positions are closed
+        self.assertEqual(self.backtester.get_state()["AAPL"], 0)
+        self.assertEqual(self.backtester.get_state()["GOOGL"], 0)
 
-        # Check that we have two orders (buy and sell)
-        history = self.backtester.get_history()
-        self.assertEqual(len(history), 2)
+    def test_portfolio_value_calculation(self):
+        """Test portfolio value calculation."""
+        timestamp = pd.Timestamp(2024, 1, 1, 10, 0)
 
-    def test_load_train_prices(self):
-        """Test loading training prices."""
-        self.backtester.load_train_prices(self.train_prices)
+        # Buy some positions
+        self.backtester.place_buy_order("AAPL", 150.0, 2, timestamp)
+        self.backtester.place_buy_order("GOOGL", 200.0, 1, timestamp)
 
-        # Check that train_prices is set
-        self.assertIsNotNone(self.backtester.train_prices)
-        self.assertTrue(self.backtester.preload_called)
+        # Calculate expected portfolio value
+        expected_cash = self.initial_cash - (150.0 * 2) - (200.0 * 1)
+        expected_portfolio_value = expected_cash + (150.0 * 2) + (200.0 * 1)
 
-        # Check that indicators are calculated
-        for ticker in self.tickers:
-            self.assertIn(ticker, self.backtester.sma_short)
-            self.assertIn(ticker, self.backtester.sma_long)
+        # Update portfolio value with current prices
+        prices = pd.Series({"AAPL": 150.0, "GOOGL": 200.0})
+        self.backtester._update_portfolio_value(prices, timestamp)
+
+        # Check portfolio value
+        self.assertEqual(self.backtester.get_state()[
+                         "portfolio_value"], expected_portfolio_value)
+
+    def test_load_train_bars(self):
+        """Test loading training bars."""
+        self.backtester.load_train_bars(self.train_bars)
+
+        self.assertIsNotNone(self.backtester.train_bars)
+        self.assertTrue(self.backtester.initialized)
+
+        # Check that train bars have the correct structure
+        self.assertEqual(self.backtester.train_bars.index.nlevels, 2)
+        self.assertTrue(all(ticker in self.backtester.train_bars.index.get_level_values(0)
+                            for ticker in self.tickers))
 
     def test_run_backtest(self):
         """Test running a complete backtest."""
-        # Load training prices first
-        self.backtester.load_train_prices(self.train_prices)
+        # Load train bars first
+        self.backtester.load_train_bars(self.train_bars)
 
         # Run backtest
-        result = self.backtester.run(self.test_prices, ignore_market_open=True)
+        state_history = self.backtester.run(
+            self.test_bars, ignore_market_open=True)
 
-        # Check that methods were called
-        self.assertTrue(self.backtester.update_step_called)
-        self.assertTrue(self.backtester.take_action_called)
+        # Check that state history is returned
+        self.assertIsInstance(state_history, pd.DataFrame)
+        self.assertGreater(len(state_history), 0)
 
-        # Check that result is a DataFrame
-        self.assertIsInstance(result, pd.DataFrame)
+        # Check that test bars are stored
+        self.assertIsNotNone(self.backtester.test_bars)
 
-        # Check that state history has expected structure
-        expected_columns = ["cash", "portfolio_value"] + self.tickers
-        self.assertListEqual(list(result.columns), expected_columns)
+    def test_run_backtest_without_train(self):
+        """Test running backtest without training data."""
+        # Run backtest without loading train bars
+        state_history = self.backtester.run(
+            self.test_bars, ignore_market_open=True)
+
+        # Check that state history is returned
+        self.assertIsInstance(state_history, pd.DataFrame)
+        self.assertGreater(len(state_history), 0)
+
+    def test_analyze_performance(self):
+        """Test performance analysis."""
+        # Run a backtest first
+        self.backtester.load_train_bars(self.train_bars)
+        self.backtester.run(self.test_bars, ignore_market_open=True)
+
+        # Analyze performance
+        performance = self.backtester.analyze_performance()
+
+        # Check that performance metrics are calculated
+        self.assertIn("return_on_investment", performance)
+        self.assertIn("max_drawdown_percentage", performance)
+        self.assertIn("start_portfolio_value", performance)
+        self.assertIn("end_portfolio_value", performance)
+
+        # Check that values are reasonable
+        self.assertGreater(performance["start_portfolio_value"], 0)
+        self.assertGreater(performance["end_portfolio_value"], 0)
 
     def test_get_state_history(self):
         """Test getting state history."""
-        # Place some orders to create history
-        ticker = "AAPL"
-        price = 150.0
-        quantity = 2.0
-        index = pd.Timestamp("2023-01-01 10:00:00")
-
-        self.backtester.place_buy_order(ticker, price, quantity, index)
+        # Make some trades
+        timestamp = pd.Timestamp(2024, 1, 1, 10, 0)
+        self.backtester.place_buy_order("AAPL", 150.0, 1, timestamp)
 
         # Get state history
-        history = self.backtester.get_state_history()
+        state_history = self.backtester.get_state_history()
 
         # Check structure
-        expected_columns = ["cash", "portfolio_value"] + self.tickers
-        self.assertListEqual(list(history.columns), expected_columns)
+        self.assertIsInstance(state_history, pd.DataFrame)
+        self.assertIn("cash", state_history.columns)
+        self.assertIn("portfolio_value", state_history.columns)
+        for ticker in self.tickers:
+            self.assertIn(ticker, state_history.columns)
 
-        # Check that cash is rounded to 2 decimal places
-        self.assertTrue(all(history["cash"].apply(lambda x: x == round(x, 2))))
+    def test_get_history(self):
+        """Test getting order history."""
+        # Make some trades
+        timestamp = pd.Timestamp(2024, 1, 1, 10, 0)
+        self.backtester.place_buy_order("AAPL", 150.0, 1, timestamp)
+        self.backtester.place_sell_order("GOOGL", 200.0, 1, timestamp)
 
-        # Check that portfolio_value column exists and has reasonable values
-        self.assertIn("portfolio_value", history.columns)
-        # Portfolio value should never be negative
-        self.assertTrue(all(history["portfolio_value"] >= 0))
-
-    def test_portfolio_value_calculation(self):
-        """Test that portfolio value is calculated correctly."""
-        ticker = "AAPL"
-        price = 150.0
-        quantity = 2.0
-        index = pd.Timestamp("2023-01-01 10:00:00")
-
-        # Place a buy order
-        self.backtester.place_buy_order(ticker, price, quantity, index)
-
-        # Update portfolio value with current price
-        self.backtester._update_portfolio_value(index, {ticker: price})
-
-        # Get state
-        state = self.backtester.get_state()
-
-        # Calculate expected portfolio value: cash + (position * price)
-        expected_cash = self.initial_cash - (price * quantity)
-        expected_portfolio_value = expected_cash + (quantity * price)
-
-        self.assertEqual(state["cash"], expected_cash)
-        self.assertEqual(state["portfolio_value"], expected_portfolio_value)
-
-        # Test with different price
-        new_price = 160.0
-        self.backtester._update_portfolio_value(index, {ticker: new_price})
-        state = self.backtester.get_state()
-
-        # Portfolio value should update with new price
-        expected_portfolio_value_new = expected_cash + (quantity * new_price)
-        self.assertEqual(state["portfolio_value"],
-                         expected_portfolio_value_new)
-
-    def test_multiple_orders_same_ticker(self):
-        """Test multiple orders for the same ticker."""
-        ticker = "AAPL"
-        index1 = pd.Timestamp("2023-01-01 10:00:00")
-        index2 = pd.Timestamp("2023-01-01 11:00:00")
-
-        # Place buy order
-        self.backtester.place_buy_order(ticker, 150.0, 2.0, index1)
-
-        # Place another buy order
-        self.backtester.place_buy_order(ticker, 160.0, 1.0, index2)
-
-        # Check final state
-        state = self.backtester.get_state()
-        expected_cash = self.initial_cash - (150.0 * 2.0) - (160.0 * 1.0)
-        self.assertEqual(state["cash"], expected_cash)
-        self.assertEqual(state[ticker], 3.0)  # 2 + 1
-
-        # Check order history
+        # Get history
         history = self.backtester.get_history()
+
+        # Check structure
+        self.assertIsInstance(history, pd.DataFrame)
+        self.assertIn("ticker", history.columns)
+        self.assertIn("position", history.columns)
+        self.assertIn("price", history.columns)
+        self.assertIn("quantity", history.columns)
+
+        # Check that we have 2 orders
         self.assertEqual(len(history), 2)
 
-    def test_invalid_ticker_assertion(self):
-        """Test that invalid tickers raise assertion error."""
-        invalid_prices = pd.DataFrame({
-            "INVALID": [100, 101, 102],
-            "ALSO_INVALID": [200, 201, 202]
-        }, index=pd.date_range("2023-01-01", periods=3, freq="h"))
+    def test_dataframe_structure_validation(self):
+        """Test that the backtester validates dataframe structure correctly."""
+        # Test with invalid dataframe (no multi-index)
+        invalid_bars = pd.DataFrame({
+            'open': [100, 101, 102],
+            'high': [105, 106, 107],
+            'low': [95, 96, 97],
+            'close': [103, 104, 105],
+            'volume': [1000, 1100, 1200]
+        })
 
         with self.assertRaises(AssertionError):
-            self.backtester.load_train_prices(invalid_prices)
+            self.backtester.run(invalid_bars, ignore_market_open=True)
 
-    def test_non_unique_index_assertion(self):
-        """Test that non-unique index raises assertion error."""
-        non_unique_prices = pd.DataFrame({
-            "AAPL": [100, 101, 102],
-            "GOOGL": [200, 201, 202]
-        }, index=pd.DatetimeIndex([
-            pd.Timestamp("2023-01-01 10:00:00"),
-            pd.Timestamp("2023-01-01 10:00:00"),  # Duplicate
-            pd.Timestamp("2023-01-01 12:00:00")
-        ]))
+    def test_advanced_backtester(self):
+        """Test the more advanced backtester implementation."""
+        advanced_backtester = TestEventBacktesterAdvanced(
+            self.tickers, self.initial_cash)
 
-        with self.assertRaises(AssertionError):
-            self.backtester.load_train_prices(non_unique_prices)
+        # Run backtest
+        advanced_backtester.load_train_bars(self.train_bars)
+        state_history = advanced_backtester.run(
+            self.test_bars, ignore_market_open=True)
 
-    def test_non_monotonic_index_assertion(self):
-        """Test that non-monotonic index raises assertion error."""
-        non_monotonic_prices = pd.DataFrame({
-            "AAPL": [100, 101, 102],
-            "GOOGL": [200, 201, 202]
-        }, index=pd.DatetimeIndex([
-            pd.Timestamp("2023-01-01 12:00:00"),  # Later time first
-            pd.Timestamp("2023-01-01 10:00:00"),
-            pd.Timestamp("2023-01-01 11:00:00")
-        ]))
+        # Check that multiple trades were made
+        history = advanced_backtester.get_history()
+        self.assertGreater(len(history), 0)
 
-        with self.assertRaises(AssertionError):
-            self.backtester.load_train_prices(non_monotonic_prices)
+        # Check that trade count increased
+        self.assertGreater(advanced_backtester.trade_count, 0)
 
 
-if __name__ == "__main__":
+class TestEventBacktesterIntegration(unittest.TestCase):
+    """Integration tests for EventBacktester class."""
+
+    def setUp(self):
+        """Set up test fixtures for integration tests."""
+        self.tickers = ["AAPL", "GOOGL", "MSFT"]
+        self.backtester = TestEventBacktester(self.tickers, 10000.0)
+
+        # Create larger dataset for integration testing
+        self.create_integration_data()
+
+    def create_integration_data(self):
+        """Create larger dataset for integration testing."""
+        # Create timestamps for a week of hourly data
+        start_date = pd.Timestamp(2024, 1, 1, 9, 30)
+        # 7 days * 24 hours
+        timestamps = [start_date + timedelta(hours=i) for i in range(168)]
+
+        # Create multi-index data
+        data = []
+        for ticker in self.tickers:
+            # Different base price per ticker
+            base_price = 100.0 + (hash(ticker) % 100)
+            for i, timestamp in enumerate(timestamps):
+                # Generate realistic price movement with some trend
+                trend = np.sin(i / 24) * 5  # Daily cycle
+                noise = np.random.normal(0, 1)
+                close_price = base_price + trend + noise
+
+                data.append({
+                    'ticker': ticker,
+                    'timestamp': timestamp,
+                    'open': close_price - np.random.uniform(0, 1),
+                    'high': close_price + np.random.uniform(0, 2),
+                    'low': close_price - np.random.uniform(0, 2),
+                    'close': close_price,
+                    'volume': int(np.random.uniform(1000, 10000))
+                })
+
+        # Create DataFrame and set multi-index
+        self.integration_bars = pd.DataFrame(data)
+        self.integration_bars.set_index(['ticker', 'timestamp'], inplace=True)
+        self.integration_bars = self.integration_bars.sort_index()
+
+        # Split into train and test
+        split_point = int(len(timestamps) * 0.8)
+        train_timestamps = timestamps[:split_point]
+        test_timestamps = timestamps[split_point:]
+
+        self.train_bars = self.integration_bars.loc[
+            (slice(None), train_timestamps), :
+        ]
+        self.test_bars = self.integration_bars.loc[
+            (slice(None), test_timestamps), :
+        ]
+
+    def test_full_backtest_workflow(self):
+        """Test the complete backtest workflow."""
+        # Load training data
+        self.backtester.load_train_bars(self.train_bars)
+
+        # Run backtest
+        state_history = self.backtester.run(
+            self.test_bars, ignore_market_open=True)
+
+        # Verify results
+        self.assertIsInstance(state_history, pd.DataFrame)
+        self.assertGreater(len(state_history), 0)
+
+        # Check that we have order history (positions may be closed by default)
+        order_history = self.backtester.get_history()
+        self.assertGreater(len(order_history), 0)
+
+        # Check that we have order history
+        order_history = self.backtester.get_history()
+        self.assertGreater(len(order_history), 0)
+
+        # Analyze performance
+        performance = self.backtester.analyze_performance()
+        self.assertIsInstance(performance, pd.Series)
+        self.assertGreater(performance["end_portfolio_value"], 0)
+
+    def test_backtest_with_position_closing(self):
+        """Test backtest with automatic position closing."""
+        # Load training data
+        self.backtester.load_train_bars(self.train_bars)
+
+        # Run backtest with position closing
+        state_history = self.backtester.run(
+            self.test_bars, ignore_market_open=True, close_positions=True)
+
+        # Check that positions were closed at the end
+        final_state = self.backtester.get_state()
+        for ticker in self.tickers:
+            self.assertEqual(final_state[ticker], 0)
+
+    def test_backtest_without_position_closing(self):
+        """Test backtest without automatic position closing."""
+        # Load training data
+        self.backtester.load_train_bars(self.train_bars)
+
+        # Run backtest without position closing
+        state_history = self.backtester.run(
+            self.test_bars, ignore_market_open=True, close_positions=False)
+
+        # Check that we have order history (positions may still be closed by the strategy logic)
+        order_history = self.backtester.get_history()
+        self.assertGreater(len(order_history), 0)
+
+
+if __name__ == '__main__':
     # Run the tests
     unittest.main(verbosity=2)

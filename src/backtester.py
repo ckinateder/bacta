@@ -15,7 +15,7 @@ except ImportError:
     from __init__ import Position, get_logger
 
 from src.utilities import dash, load_dataframe
-from src.utilities.bars import download_bars, download_close_prices
+from src.utilities.bars import download_bars, download_close_prices, split_bars
 from src.utilities.market import is_market_open
 from src.utilities.plotting import DEFAULT_FIGSIZE, plt_show
 
@@ -34,11 +34,11 @@ class EventBacktester(ABC):
     Functions to be overridden:
     - preload: preload the indicators for the backtest. Optional.
     - update_step: update the indicators for the backtest at each time step. Optional.
-    - take_action: make a decision based on the indicators and the prices.
+    - take_action: make a decision based on the indicators and the latest bar.
 
     The backtester is designed to run purely on the test dataset.
-    If the user wants to preload the train prices, they must call the load_train_prices method before running the backtest.
-    This calls the preload method with the train prices and sets the train_prices attribute. This is useful to ensure a seamless
+    If the user wants to preload the train bars, they must call the load_train_bars method before running the backtest.
+    This calls the preload method with the train bars and sets the train_bars attribute. This is useful to ensure a seamless
     transition from train to test data, like in production. Indicators and models relying on lags need historical data at the start
     of the testing period.
 
@@ -47,6 +47,23 @@ class EventBacktester(ABC):
 
     To use this class, the user must override the take_action method. If necessary, the user can override the preload and update_step methods.
     The user can call the run method to run the backtest.
+
+    The backtester is designed to be used with a multi-index dataframe of bars. The index is (ticker, timestamp) and the columns are OHLCV.
+    Example:
+                                                open    high  ...    volume  trade_count
+        symbol timestamp                                   ...                       
+        CMS    2023-01-03 09:00:00-05:00   58.560   58.93  ...  171942.0       1941.0
+               2023-01-03 10:00:00-05:00   58.330   58.36  ...  169171.0       3700.0
+               2023-01-03 11:00:00-05:00   58.340   58.38  ...   98527.0       2302.0
+               2023-01-03 12:00:00-05:00   58.230   58.50  ...  151657.0       2355.0
+               2023-01-03 13:00:00-05:00   58.200   58.67  ...   92756.0       1905.0
+        ...                                   ...     ...  ...       ...          ...
+        DTE    2025-07-18 12:00:00-04:00  136.535  136.99  ...   68742.0       2193.0
+               2025-07-18 13:00:00-04:00  136.530  136.80  ...   99874.0       2391.0
+               2025-07-18 14:00:00-04:00  136.680  136.72  ...  103748.0       3041.0
+               2025-07-18 15:00:00-04:00  136.700  137.39  ...  560404.0       9704.0
+               2025-07-18 16:00:00-04:00  137.260  137.98  ...  415033.0         55.0
+
     """
 
     def __init__(self, active_tickers: list[str], cash: float = 100):
@@ -61,9 +78,9 @@ class EventBacktester(ABC):
         self.initialize_bank(cash)
 
         # may or may not be needed
-        self.train_prices = None
-        self.test_prices = None
-        self.full_price_history = None
+        self.train_bars = None
+        self.test_bars = None
+        # self.full_bars = None
 
     def initialize_bank(self, cash: float = 100):
         """Initialize the bank and the state history.
@@ -116,13 +133,13 @@ class EventBacktester(ABC):
                                    ticker] = current_ticker_quantity - quantity
 
         # update portfolio valuation
-        self._update_portfolio_value(index, {ticker: price})
+        self._update_portfolio_value(pd.Series({ticker: price}), index)
 
         # ffill to get rid of Nans
         if ffill:
             self.state_history = self.state_history.ffill()
 
-    def _update_portfolio_value(self, index: pd.Timestamp, prices: pd.Series):
+    def _update_portfolio_value(self, prices: pd.Series, index: pd.Timestamp):
         """Update the portfolio value at the given index using current prices.
 
         Args:
@@ -194,14 +211,13 @@ class EventBacktester(ABC):
         elif order == Position.SHORT:
             self.place_sell_order(ticker, price, quantity, index)
 
-    def close_positions(self, prices: pd.Series):
+    def close_positions(self, prices: pd.Series, index: pd.Timestamp):
         """
         Close all positions at the given prices.
 
         Args:
             prices (pd.Series): The prices to close the positions at. Name is the date. Index is the tickers.
         """
-        index = prices.name
         for ticker in self.active_tickers:
             if self.get_state()[ticker] != 0:
                 position = self.get_state()[ticker]
@@ -212,55 +228,65 @@ class EventBacktester(ABC):
                     self.place_buy_order(
                         ticker, prices[ticker], abs(position), index)
 
-    def run(self, test_prices: pd.DataFrame, ignore_market_open: bool = False, close_positions: bool = True):
+    def run(self, test_bars: pd.DataFrame, ignore_market_open: bool = False, close_positions: bool = True):
         """
         Run a single period of the backtest over the given dataframe.
         Assume that prices have their indicators already calculated and are in the prices dataframe.
 
-        Args:|
-            test_prices: DataFrame with prices of the assets. Columns are the tickers, index is the date.
-                Close prices are used.
+        Args:
+            test_bars: DataFrame with bars of the assets. Multi-index with (ticker, timestamp) index and OHLCV columns.
+                See the class docstring for more details.
             ignore_market_open (bool, optional): Whether to ignore the market operating hours. Defaults to False.
             close_positions (bool, optional): Whether to close positions at the end of the backtest. Defaults to True.
         """
-        # check if active tickers are in the prices dataframe
-        assert all(
-            ticker in test_prices.columns for ticker in self.active_tickers), "Ticker not found in prices dataframe"
-        assert test_prices.index.is_unique, "Prices dataframe must have a unique index"
-        assert test_prices.index.is_monotonic_increasing, "Prices dataframe must have a monotonic increasing index"
-        assert isinstance(
-            test_prices.index[0], pd.Timestamp), "Prices dataframe index must be a timestamp"
-        # store
-        self.test_prices = test_prices
+        # check if the bars are in the correct format
+        assert test_bars.index.nlevels == 2, "Bars must have a multi-index with (ticker, timestamp) index"
+        assert test_bars.index.get_level_values(0).unique().isin(
+            self.active_tickers).all(), "All tickers must be in the bars"
+        for ticker in self.active_tickers:
+            ticker_bars = test_bars.xs(ticker, level=0)
+            assert ticker_bars.index.is_monotonic_increasing, f"Bars for {ticker} must have a monotonic increasing timestamp"
+            assert ticker_bars.index.is_unique, f"Bars for {ticker} must have a unique timestamp"
+        assert isinstance(test_bars.index.get_level_values(
+            1)[0], pd.Timestamp), "Bars must have a timestamp index"
 
-        # if train prices is not None, we want to make the full price history
-        if self.train_prices is not None:
+        # store
+        self.test_bars = test_bars
+
+        # if train bars is not None, we want to make the full price history
+        if self.train_bars is not None:
             logger.info(
-                "Train prices have been previously loaded. Concatenating with test prices...")
-            full_price_history = pd.concat([self.train_prices, test_prices])
-            start_loc = len(self.train_prices)
+                "Train bars have been previously loaded. Concatenating with test bars...")
+            full_bars = pd.concat([self.train_bars, test_bars])
+            start_loc = len(self.train_bars)
         else:
-            full_price_history = test_prices
+            full_bars = test_bars
             start_loc = 0
+
+        # get the timestamps
+        timestamps = full_bars.index.get_level_values(1)
 
         # log the backtest range
         logger.info(
-            f"Running backtest over {len(full_price_history.index[start_loc:])} bars from {full_price_history.index[start_loc]} to {full_price_history.index[-1]}...")
-        # iterate through the index of the prices
-        for index in full_price_history.index[start_loc:]:
+            f"Running backtest over {len(full_bars.index[start_loc:])} bars from {timestamps[start_loc]} to {timestamps[-1]}...")
+
+        # iterate through the index of the bars
+        for index in timestamps[start_loc:]:
             # perform update step
-            self.update_step(full_price_history, index)
+            self.update_step(full_bars, index)
             if ignore_market_open or is_market_open(index):
                 # make a decision
-                current_bar_prices = full_price_history.loc[index]
-                self.take_action(current_bar_prices)
+                current_bar = full_bars.xs(index, level=1)
+                self.take_action(current_bar, index)
 
-                # Update portfolio value with current prices
-                self._update_portfolio_value(index, current_bar_prices)
+                # Update portfolio value with current close prices
+                current_close_prices = current_bar.loc[:, "close"]
+                self._update_portfolio_value(current_close_prices, index)
 
-            if close_positions and index == full_price_history.index[-2]:
+            if close_positions and index == timestamps[-2]:
                 logger.info(f"Closing positions at {index}...")
-                self.close_positions(full_price_history.iloc[-1])
+                self.close_positions(full_bars.xs(
+                    index, level=1).loc[:, "close"], index)
                 break
 
         logger.info("Backtest complete.")
@@ -314,23 +340,25 @@ class EventBacktester(ABC):
         # history["cash"] = history["cash"].round(2)
         return history
 
-    def load_train_prices(self, train_prices: pd.DataFrame):
+    def load_train_bars(self, train_bars: pd.DataFrame):
         """
         Preload the indicators for the backtest. This is meant to be overridden by the child class.
         The user must explicitly call this method before running the backtest.
 
         Args:
-            train_prices (pd.DataFrame): The prices of the assets over the TRAINING period.
-                Columns are the tickers, index is the date. Close prices are used.
+            train_bars (pd.DataFrame): The bars of the assets over the TRAINING period.
+                Multi-index with (ticker, timestamp) index and OHLCV columns.
         """
         assert all(
-            ticker in train_prices.columns for ticker in self.active_tickers), "Ticker not found in prices dataframe"
-        assert train_prices.index.is_unique, "Prices dataframe must have a unique index"
-        assert train_prices.index.is_monotonic_increasing, "Prices dataframe must have a monotonic increasing index"
+            ticker in train_bars.index.get_level_values(0) for ticker in self.active_tickers), "Ticker not found in bars"
+        for ticker in self.active_tickers:
+            ticker_bars = train_bars.xs(ticker, level=0)
+            assert ticker_bars.index.is_monotonic_increasing, f"Bars for {ticker} must have a monotonic increasing timestamp"
+            assert ticker_bars.index.is_unique, f"Bars for {ticker} must have a unique timestamp"
         assert isinstance(
-            train_prices.index[0], pd.Timestamp), "Prices dataframe index must be a timestamp"
-        self.train_prices = train_prices
-        self.preload(train_prices)
+            train_bars.index.get_level_values(1)[0], pd.Timestamp), "Bars must have a timestamp index"
+        self.train_bars = train_bars
+        self.preload(train_bars)
 
     def plot_equity_curve(self, figsize: tuple = DEFAULT_FIGSIZE, title: str = "Equity Curve", save_plot: bool = True, show_plot: bool = False) -> plt.Figure:
         """
@@ -475,10 +503,10 @@ class EventBacktester(ABC):
         ax4.grid(True, linestyle='--', alpha=0.7)
 
         # Subplot 5: Ticker Prices
-        if hasattr(self, 'test_prices') and self.test_prices is not None:
+        if hasattr(self, 'test_bars') and self.test_bars is not None:
             for ticker in self.active_tickers:
-                if ticker in self.test_prices.columns:
-                    ax5.step(self.test_prices.index, self.test_prices[ticker],
+                if ticker in self.test_bars.index.get_level_values(0):
+                    ax5.step(self.test_bars.xs(ticker, level=0).index, self.test_bars.xs(ticker, level=0).loc[:, "close"],
                              label=ticker, linewidth=1.5, where='post')
             ax5.set_title("Ticker Prices")
             ax5.set_ylabel("Price ($)")
@@ -490,12 +518,14 @@ class EventBacktester(ABC):
             ax5.set_title("Ticker Prices")
 
         # Subplot 6: Buy and Hold Returns
-        if hasattr(self, 'test_prices') and self.test_prices is not None:
+        if hasattr(self, 'test_bars') and self.test_bars is not None:
             all_cum_returns = []
             for ticker in self.active_tickers:
-                if ticker in self.test_prices.columns:
-                    ticker_prices = self.test_prices[ticker]
-                    ticker_returns = ticker_prices.pct_change().dropna()
+                if ticker in self.test_bars.index.get_level_values(0):
+                    ticker_bars = self.test_bars.xs(
+                        ticker, level=0)
+                    ticker_returns = ticker_bars.loc[:,
+                                                     "close"].pct_change().dropna()
                     ticker_cum_returns = (1 + ticker_returns).cumprod()
                     ax6.step(ticker_cum_returns.index, ticker_cum_returns,
                              label=f'{ticker} B&H', linewidth=1.5, alpha=0.7, where='post')
@@ -536,31 +566,39 @@ class EventBacktester(ABC):
     ################################################################################################
     ################################################################################################
 
-    def preload(self, train_prices: pd.DataFrame):
+    def preload(self, train_bars: pd.DataFrame):
         """
         Preload the indicators for the backtest. This is meant to be overridden by the child class.
+
+        Args:
+            train_bars (pd.DataFrame): The bars of the assets over the TRAINING period.
+                Multi-index with (ticker, timestamp) index and OHLCV columns.
+
+        Raises:
+            NotImplementedError: This method must be overridden by the child class.
         """
         raise NotImplementedError(
             "This method must be overridden by the child class.")
 
-    def update_step(self, prices: pd.DataFrame, index: pd.Timestamp):
+    def update_step(self, bars: pd.DataFrame, index: pd.Timestamp):
         """
         Args:
-            prices: DataFrame with prices of the assets. Columns are the tickers, index is the date.
-                Close prices are used.
-            index: The index point of the prices.
+            bars: DataFrame with bars of the assets. Multi-index with (ticker, timestamp) index and OHLCV columns.
+                Bars is the full price history. Might remove this in the future and go with the class state.
+            index: The index point of the current step.
         This is optional and can be overridden by the child class.
         """
         pass
 
     @abstractmethod
-    def take_action(self, prices: pd.Series):
+    def take_action(self, bars: pd.DataFrame, index: pd.Timestamp):
         """
         Make a decision based on the current prices. This is meant to be overridden by the child class.
         This will place an order if needed.
 
         Args:
-            prices: Series with prices of the assets. Index is the date.
+            bars: DataFrame with bars of the assets. Multi-index with (ticker, timestamp) index and OHLCV columns.
+            index: The index point of the bars.
         Returns:
             Position: The order to place.
         """
@@ -603,37 +641,40 @@ class SMABacktester(EventBacktester):
 
     def __init__(self, active_tickers: list[str], cash: float = 100):
         super().__init__(active_tickers, cash)
+        self.short_window = 5
+        self.long_window = 21
 
-    def preload(self, prices: pd.DataFrame):
+    def preload(self, bars: pd.DataFrame):
         """
         Preload the indicators for the backtest.
         """
-        self.sma_shorts = {ticker: prices[ticker].rolling(
-            window=15).mean() for ticker in self.active_tickers}
-        self.sma_longs = {ticker: prices[ticker].rolling(
-            window=50).mean() for ticker in self.active_tickers}
+        self.sma_shorts = {ticker: bars.xs(ticker, level=0).loc[:, "close"].rolling(
+            window=self.short_window).mean() for ticker in self.active_tickers}
+        self.sma_longs = {ticker: bars.xs(ticker, level=0).loc[:, "close"].rolling(
+            window=self.long_window).mean() for ticker in self.active_tickers}
 
-    def update_step(self, prices: pd.DataFrame, index: pd.Timestamp):
+    def update_step(self, bars: pd.DataFrame, index: pd.Timestamp):
         """
         Update the state of the backtester.
         """
         # update the indicators
-        self.sma_shorts = {ticker: prices[ticker].rolling(
-            window=15).mean() for ticker in self.active_tickers}
-        self.sma_longs = {ticker: prices[ticker].rolling(
-            window=50).mean() for ticker in self.active_tickers}
+        self.sma_shorts = {ticker: bars.xs(ticker, level=0).loc[:, "close"].rolling(
+            window=self.short_window).mean() for ticker in self.active_tickers}
+        self.sma_longs = {ticker: bars.xs(ticker, level=0).loc[:, "close"].rolling(
+            window=self.long_window).mean() for ticker in self.active_tickers}
 
-    def take_action(self, prices: pd.Series):
+    def take_action(self, bar: pd.DataFrame, index: pd.Timestamp):
         """
         Make a decision based on the prices.
         """
+        close_prices = bar.loc[:, "close"]
         for ticker in self.active_tickers:
-            if self.sma_shorts[ticker][prices.name] > self.sma_longs[ticker][prices.name]:
-                self.place_order(Position.LONG, prices.name,
-                                 ticker, prices[ticker], 1)
+            if self.sma_shorts[ticker][index] > self.sma_longs[ticker][index]:
+                self.place_order(Position.LONG, index,
+                                 ticker, close_prices[ticker], 1)
             else:
-                self.place_order(Position.SHORT, prices.name,
-                                 ticker, prices[ticker], 1)
+                self.place_order(Position.SHORT, index,
+                                 ticker, close_prices[ticker], 1)
 
 
 if __name__ == "__main__":
@@ -645,21 +686,13 @@ if __name__ == "__main__":
         "EVRG", "LNT", "PNW", "IDA", "AEP",
         "DUK", "SRE", "ATO", "NRG",
     ]
-    prices = download_close_prices(utility_tickers, start_date=datetime(
-        2024, 1, 1), end_date=datetime.now() - timedelta(minutes=15), timeframe=TimeFrame.Hour).tail(1000)
 
-    bars = download_bars(["CMS", "DTE"], start_date=datetime(
-        2023, 1, 1), end_date=datetime.now() - timedelta(minutes=15), timeframe=TimeFrame.Hour)
+    bars = download_bars(["NEE", "EXC"], start_date=datetime(
+        2024, 1, 1), end_date=datetime.now() - timedelta(minutes=15), timeframe=TimeFrame.Hour)
 
-    import pdb
-    pdb.set_trace()
-
-    midpoint = int(prices.shape[0] * 0.8)
-    train_prices = prices.iloc[:midpoint]
-    test_prices = prices.iloc[midpoint:]
-
-    backtester.load_train_prices(train_prices)
-    backtester.run(test_prices, ignore_market_open=False)
+    train_bars, test_bars = split_bars(bars, split_ratio=0.9)
+    backtester.load_train_bars(train_bars)
+    backtester.run(test_bars, ignore_market_open=False)
 
     print(dash("order history"))
     print(backtester.get_history())
