@@ -16,7 +16,7 @@ except ImportError:
     from __init__ import Position, get_logger
 
 from src.utilities import dash, load_dataframe
-from src.utilities.bars import download_bars, download_close_prices, split_bars_train_test
+from src.utilities.bars import download_bars, download_close_prices, separate_bars_by_symbol, split_bars_train_test
 from src.utilities.market import is_market_open
 from src.utilities.plotting import DEFAULT_FIGSIZE, plt_show
 
@@ -33,26 +33,26 @@ class EventBacktester(ABC):
     - order_history: the history of orders placed.
 
     Functions to be overridden:
-    - preload: preload the indicators for the backtest. Optional.
+    - precompute_step: precompute_step the indicators for the backtest. Optional.
     - update_step: update the indicators for the backtest at each time step. Optional.
     - take_action: make a decision based on the indicators and the latest bar.
 
     The backtester is designed to run purely on the test dataset.
-    If the user wants to preload the train bars, they must call the load_train_bars method before running the backtest.
-    This calls the preload method with the train bars and sets the train_bars attribute. This is useful to ensure a seamless
+    If the user wants to precompute_step the train bars, they must call the load_train_bars method before running the backtest.
+    This calls the precompute_step method with the train bars and sets the train_bars attribute. This is useful to ensure a seamless
     transition from train to test data, like in production. Indicators and models relying on lags need historical data at the start
     of the testing period.
 
     These structures are updated based on the events that occur, and are used to calculate the performance of the backtester.
     The user may want to override the run method to handle the events.
 
-    To use this class, the user must override the take_action method. If necessary, the user can override the preload and update_step methods.
+    To use this class, the user must override the take_action method. If necessary, the user can override the precompute_step and update_step methods.
     The user can call the run method to run the backtest.
 
     The backtester is designed to be used with a multi-index dataframe of bars. The index is (ticker, timestamp) and the columns are OHLCV.
     Example:
                                                 open    high  ...    volume  trade_count
-        symbol timestamp                                   ...                       
+        symbol timestamp                                   ...
         CMS    2023-01-03 09:00:00-05:00   58.560   58.93  ...  171942.0       1941.0
                2023-01-03 10:00:00-05:00   58.330   58.36  ...  169171.0       3700.0
                2023-01-03 11:00:00-05:00   58.340   58.38  ...   98527.0       2302.0
@@ -187,7 +187,7 @@ class EventBacktester(ABC):
         else:
             self.order_history = pd.concat([self.order_history, new_history])
 
-    def place_buy_order(self, ticker: str, price: float, quantity: float, index: pd.Timestamp):
+    def _place_buy_order(self, ticker: str, price: float, quantity: float, index: pd.Timestamp):
         """
         Place a buy order for a given ticker.
         """
@@ -195,7 +195,7 @@ class EventBacktester(ABC):
         self._update_state(ticker, price, quantity, Position.LONG, index)
         self._update_history(ticker, price, quantity, Position.LONG, index)
 
-    def place_sell_order(self, ticker: str, price: float, quantity: float, index: pd.Timestamp):
+    def _place_sell_order(self, ticker: str, price: float, quantity: float, index: pd.Timestamp):
         """
         Place a sell order for a given ticker.
         """
@@ -203,16 +203,16 @@ class EventBacktester(ABC):
         self._update_state(ticker, price, quantity, Position.SHORT, index)
         self._update_history(ticker, price, quantity, Position.SHORT, index)
 
-    def place_order(self, order: Position, index: pd.Timestamp, ticker: str, price: float, quantity: float):
+    def _place_order(self, order: Position, index: pd.Timestamp, ticker: str, price: float, quantity: float):
         """
         Place an order for a given ticker.
         """
         if order == Position.LONG:
-            self.place_buy_order(ticker, price, quantity, index)
+            self._place_buy_order(ticker, price, quantity, index)
         elif order == Position.SHORT:
-            self.place_sell_order(ticker, price, quantity, index)
+            self._place_sell_order(ticker, price, quantity, index)
 
-    def close_positions(self, prices: pd.Series, index: pd.Timestamp):
+    def _close_positions(self, prices: pd.Series, index: pd.Timestamp):
         """
         Close all positions at the given prices.
 
@@ -223,10 +223,10 @@ class EventBacktester(ABC):
             if self.get_state()[ticker] != 0:
                 position = self.get_state()[ticker]
                 if position > 0:
-                    self.place_sell_order(
+                    self._place_sell_order(
                         ticker, prices[ticker], abs(position), index)
                 else:
-                    self.place_buy_order(
+                    self._place_buy_order(
                         ticker, prices[ticker], abs(position), index)
 
     def run(self, test_bars: pd.DataFrame, ignore_market_open: bool = False, close_positions: bool = True):
@@ -286,7 +286,7 @@ class EventBacktester(ABC):
 
             if close_positions and index == timestamps[-2]:
                 logger.info(f"Closing positions at {index}...")
-                self.close_positions(full_bars.xs(
+                self._close_positions(full_bars.xs(
                     index, level=1).loc[:, "close"], index)
                 break
         # return the state history
@@ -357,7 +357,7 @@ class EventBacktester(ABC):
         assert isinstance(
             train_bars.index.get_level_values(1)[0], pd.Timestamp), "Bars must have a timestamp index"
         self.train_bars = train_bars
-        self.preload(train_bars)
+        self.precompute_step(train_bars)
 
     def plot_equity_curve(self, figsize: tuple = DEFAULT_FIGSIZE, title: str = "Equity Curve", save_plot: bool = True, show_plot: bool = False) -> plt.Figure:
         """
@@ -566,7 +566,7 @@ class EventBacktester(ABC):
 
         return fig
 
-    def plot_trade_history(self, figsize: tuple = (20, 12), save_plot: bool = True, show_plot: bool = False, title: str = "Trade History") -> plt.Figure:
+    def plot_trade_history(self, figsize: tuple = (20, 12), save_plot: bool = True, show_plot: bool = False, title: str = "Trade History", summary_stats: bool = False) -> plt.Figure:
         """
         Plot the price history with trade markers showing buy and sell orders.
 
@@ -654,7 +654,7 @@ class EventBacktester(ABC):
                 ax.grid(True, linestyle='--', alpha=0.3)
 
                 # Add summary statistics
-                if not ticker_trades.empty:
+                if not ticker_trades.empty and summary_stats:
                     total_trades = len(ticker_trades)
                     total_volume = ticker_trades['quantity'].sum()
                     avg_price = (
@@ -691,7 +691,7 @@ class EventBacktester(ABC):
     ################################################################################################
     ################################################################################################
 
-    def preload(self, train_bars: pd.DataFrame):
+    def precompute_step(self, train_bars: pd.DataFrame):
         """
         Preload the indicators for the backtest. This is meant to be overridden by the child class.
 
@@ -757,49 +757,7 @@ class WalkForwardBacktester(EventBacktester, ABC):
         remainder = len(prices) % walk_forward_periods
 
         # we want the strategy to train on
-
-
-class SMABacktester(EventBacktester):
-    """
-    Backtester that uses a simple moving average strategy.
-    """
-
-    def __init__(self, active_tickers: list[str], cash: float = 100):
-        super().__init__(active_tickers, cash)
-        self.short_window = 5
-        self.long_window = 21
-
-    def preload(self, bars: pd.DataFrame):
-        """
-        Preload the indicators for the backtest.
-        """
-        self.sma_shorts = {ticker: bars.xs(ticker, level=0).loc[:, "close"].rolling(
-            window=self.short_window).mean() for ticker in self.active_tickers}
-        self.sma_longs = {ticker: bars.xs(ticker, level=0).loc[:, "close"].rolling(
-            window=self.long_window).mean() for ticker in self.active_tickers}
-
-    def update_step(self, bars: pd.DataFrame, index: pd.Timestamp):
-        """
-        Update the state of the backtester.
-        """
-        # update the indicators
-        self.sma_shorts = {ticker: bars.xs(ticker, level=0).loc[:, "close"].rolling(
-            window=self.short_window).mean() for ticker in self.active_tickers}
-        self.sma_longs = {ticker: bars.xs(ticker, level=0).loc[:, "close"].rolling(
-            window=self.long_window).mean() for ticker in self.active_tickers}
-
-    def take_action(self, bar: pd.DataFrame, index: pd.Timestamp):
-        """
-        Make a decision based on the prices.
-        """
-        close_prices = bar.loc[:, "close"]
-        for ticker in self.active_tickers:
-            if self.sma_shorts[ticker][index] > self.sma_longs[ticker][index]:
-                self.place_order(Position.LONG, index,
-                                 ticker, close_prices[ticker], 1)
-            else:
-                self.place_order(Position.SHORT, index,
-                                 ticker, close_prices[ticker], 1)
+        raise NotImplementedError()
 
 
 class KeltnerChannelBacktester(EventBacktester):
@@ -811,27 +769,30 @@ class KeltnerChannelBacktester(EventBacktester):
         super().__init__(active_tickers, cash)
         self.keltner_channel_period = 21
 
-    def preload(self, bars: pd.DataFrame):
+    def precompute_step(self, bars: pd.DataFrame):
         """
         Preload the indicators for the backtest.
         """
-        self.middle_bands = {ticker: EMA(bars.xs(
-            ticker, level=0).loc[:, "close"], timeperiod=self.keltner_channel_period) for ticker in self.active_tickers}
-        self.upper_bands = {ticker: self.middle_bands[ticker] + 2 * ATR(bars.xs(ticker, level=0).loc[:, "high"], bars.xs(
-            ticker, level=0).loc[:, "low"], bars.xs(ticker, level=0).loc[:, "close"], timeperiod=self.keltner_channel_period) for ticker in self.active_tickers}
-        self.lower_bands = {ticker: self.middle_bands[ticker] - 2 * ATR(bars.xs(ticker, level=0).loc[:, "high"], bars.xs(
-            ticker, level=0).loc[:, "low"], bars.xs(ticker, level=0).loc[:, "close"], timeperiod=self.keltner_channel_period) for ticker in self.active_tickers}
+
+        split_bars = separate_bars_by_symbol(bars)
+        self.middle_bands = {ticker: EMA(
+            split_bars[ticker].loc[:, "close"], timeperiod=self.keltner_channel_period) for ticker in self.active_tickers}
+        self.upper_bands = {ticker: self.middle_bands[ticker] + 2 * ATR(split_bars[ticker].loc[:, "high"], split_bars[ticker].loc[:, "low"],
+                                                                        split_bars[ticker].loc[:, "close"], timeperiod=self.keltner_channel_period) for ticker in self.active_tickers}
+        self.lower_bands = {ticker: self.middle_bands[ticker] - 2 * ATR(split_bars[ticker].loc[:, "high"], split_bars[ticker].loc[:, "low"],
+                                                                        split_bars[ticker].loc[:, "close"], timeperiod=self.keltner_channel_period) for ticker in self.active_tickers}
 
     def update_step(self, bars: pd.DataFrame, index: pd.Timestamp):
         """
         Update the state of the backtester.
         """
-        self.middle_bands = {ticker: EMA(bars.xs(
-            ticker, level=0).loc[:, "close"], timeperiod=self.keltner_channel_period) for ticker in self.active_tickers}
-        self.upper_bands = {ticker: self.middle_bands[ticker] + 2 * ATR(bars.xs(ticker, level=0).loc[:, "high"], bars.xs(
-            ticker, level=0).loc[:, "low"], bars.xs(ticker, level=0).loc[:, "close"], timeperiod=self.keltner_channel_period) for ticker in self.active_tickers}
-        self.lower_bands = {ticker: self.middle_bands[ticker] - 2 * ATR(bars.xs(ticker, level=0).loc[:, "high"], bars.xs(
-            ticker, level=0).loc[:, "low"], bars.xs(ticker, level=0).loc[:, "close"], timeperiod=self.keltner_channel_period) for ticker in self.active_tickers}
+        split_bars = separate_bars_by_symbol(bars)
+        self.middle_bands = {ticker: EMA(
+            split_bars[ticker].loc[:, "close"], timeperiod=self.keltner_channel_period) for ticker in self.active_tickers}
+        self.upper_bands = {ticker: self.middle_bands[ticker] + 2 * ATR(split_bars[ticker].loc[:, "high"], split_bars[ticker].loc[:, "low"],
+                                                                        split_bars[ticker].loc[:, "close"], timeperiod=self.keltner_channel_period) for ticker in self.active_tickers}
+        self.lower_bands = {ticker: self.middle_bands[ticker] - 2 * ATR(split_bars[ticker].loc[:, "high"], split_bars[ticker].loc[:, "low"],
+                                                                        split_bars[ticker].loc[:, "close"], timeperiod=self.keltner_channel_period) for ticker in self.active_tickers}
 
     def take_action(self, bar: pd.DataFrame, index: pd.Timestamp):
         """
@@ -840,15 +801,15 @@ class KeltnerChannelBacktester(EventBacktester):
         close_prices = bar.loc[:, "close"]
         for ticker in self.active_tickers:
             if close_prices[ticker] > self.upper_bands[ticker][index]:
-                self.place_order(Position.SHORT, index,
-                                 ticker, close_prices[ticker], 1)
+                self._place_order(Position.SHORT, index,
+                                  ticker, close_prices[ticker], 1)
             elif close_prices[ticker] < self.lower_bands[ticker][index]:
-                self.place_order(Position.LONG, index,
-                                 ticker, close_prices[ticker], 1)
+                self._place_order(Position.LONG, index,
+                                  ticker, close_prices[ticker], 1)
 
 
 if __name__ == "__main__":
-    tickers = ["CMS", "DTE"]
+    tickers = ["NEE", "EXC"]
     utility_tickers = [
         "NEE", "EXC", "D", "PCG", "XEL",
         "ED", "WEC", "DTE", "PPL", "AEE",
@@ -856,12 +817,11 @@ if __name__ == "__main__":
         "EVRG", "LNT", "PNW", "IDA", "AEP",
         "DUK", "SRE", "ATO", "NRG",
     ]
-
     bars = download_bars(tickers, start_date=datetime(
         2024, 1, 1), end_date=datetime.now() - timedelta(minutes=15), timeframe=TimeFrame.Hour)
 
     train_bars, test_bars = split_bars_train_test(bars, split_ratio=0.95)
-    backtester = KeltnerChannelBacktester(tickers, cash=9000)
+    backtester = KeltnerChannelBacktester(tickers, cash=2000)
     backtester.load_train_bars(train_bars)
     backtester.run(test_bars, ignore_market_open=False)
 

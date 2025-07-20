@@ -61,7 +61,26 @@ python -m unittest discover test
 
 Central to this project is the backtester module. The `EventBacktester` is designed for the user to make their own strategies, by inheriting from `EventBacktester` and implementing just one or more methods. 
 
-Example:
+#### Methods
+
+The `EventBacktester` class has the following predefined user-facing methods:
+
+- `load_train_bars(bars: pd.DataFrame)`: Load the training bars for the backtest. This method then calls the `precompute_step` method.
+- `run(test_bars: pd.DataFrame, ignore_market_open: bool = False, close_positions: bool = True)`: Run the backtest.
+- `plot_equity_curve(title: str = "Equity Curve", save_plot: bool = True, show_plot: bool = False)`: Plot the equity curve.
+- `plot_performance_analysis(title: str = "Performance Analysis", save_plot: bool = True, show_plot: bool = False)`: Plot the performance analysis.
+- `plot_trade_history(title: str = "Trade History", save_plot: bool = True, show_plot: bool = False)`: Plot the trade history.
+- `analyze_performance()`: Analyze the performance of the backtest.
+
+The user must implement the following methods:
+
+- `take_action(bar: pd.DataFrame, index: pd.Timestamp)`: Make a decision based on the prices. This method is called by `run`.
+- `update_step(bars: pd.DataFrame, index: pd.Timestamp)`: Update the state of the backtester. This method is called by `run`.
+- (optional) `precompute_step(bars: pd.DataFrame)`: Preload the indicators for the backtest. This method is called by `load_train_bars`.
+
+In a typical workflow, the user will implement the `take_action` and `update_step` methods, and optionally the `precompute_step` method. The user will first call the `load_train_bars` method to load the training bars into the backtester. This method then calls the `precompute_step` method, which the user must implement. The user can then call the `run` method to run the backtest. This method will call the `update_step` method for each bar in the test bars, and then call the `take_action` method for each bar in the test bars.
+
+#### Example
 
 1. Create a class that inherits from `EventBacktester`. Here is a simple SMA crossover strategy in `src/backtester.py`.
 ```python
