@@ -26,9 +26,74 @@ logger = get_logger("utilities.bars")
 load_dotenv()
 
 
+def download_bars(tickers: list[str], start_date: datetime, end_date: datetime,
+                  timeframe: TimeFrame, refresh_bars: bool = False,
+                  data_dir: str = getenv("DATA_DIR"), resample: bool = True) -> pd.DataFrame:
+    """Download the bars for the given tickers. Will first check if the bars are already downloaded and if not, will download them.
+    This requires an Alpaca API key.
+
+    Args:
+        tickers (list[str]): The tickers to download bars for.
+        start_date (datetime): The start date to download bars for.
+        end_date (datetime): The end date to download bars for.
+        timeframe (TimeFrame): The timeframe to download bars for.
+        refresh_bars (bool, optional): Whether to force refresh the bars. If False, will check if the bars are already downloaded and if not, will download them.
+        data_dir (str, optional): The directory to save the bars.
+        resample (bool, optional): Whether to resample the bars. Defaults to True.
+
+    Returns:
+        pd.DataFrame: The bars for the given tickers, resampled to the given timeframe. 
+        This is a multi-index dataframe with the tickers as the first level and the timestamp as the second level.
+        Example:
+                                            open    high  ...    volume  trade_count
+        symbol timestamp                                   ...                       
+        CMS    2023-01-03 09:00:00-05:00   58.560   58.93  ...  171942.0       1941.0
+               2023-01-03 10:00:00-05:00   58.330   58.36  ...  169171.0       3700.0
+               2023-01-03 11:00:00-05:00   58.340   58.38  ...   98527.0       2302.0
+               2023-01-03 12:00:00-05:00   58.230   58.50  ...  151657.0       2355.0
+               2023-01-03 13:00:00-05:00   58.200   58.67  ...   92756.0       1905.0
+        ...                                   ...     ...  ...       ...          ...
+        DTE    2025-07-18 12:00:00-04:00  136.535  136.99  ...   68742.0       2193.0
+               2025-07-18 13:00:00-04:00  136.530  136.80  ...   99874.0       2391.0
+               2025-07-18 14:00:00-04:00  136.680  136.72  ...  103748.0       3041.0
+               2025-07-18 15:00:00-04:00  136.700  137.39  ...  560404.0       9704.0
+               2025-07-18 16:00:00-04:00  137.260  137.98  ...  415033.0         55.0
+    """
+    start_date = start_date.strftime("%Y-%m-%d")
+    end_date = end_date.strftime("%Y-%m-%d")
+    logger.debug(
+        f"Loading close prices for {len(tickers)} tickers from {start_date} to {end_date} with timeframe {timeframe.value}")
+    ALPACA_API_KEY = getenv("ALPACA_API_KEY")
+    ALPACA_API_SECRET = getenv("ALPACA_API_SECRET")
+    client = StockHistoricalDataClient(
+        api_key=ALPACA_API_KEY, secret_key=ALPACA_API_SECRET
+    )
+    request_params = StockBarsRequest(
+        symbol_or_symbols=tickers,
+        timeframe=timeframe,
+        start=start_date,
+        end=end_date,
+        adjustment="all",
+    )
+    filename = f"{'_'.join(tickers)}_{start_date}_{end_date}_{timeframe.value}"
+
+    if refresh_bars or not (os.path.exists(os.path.join(data_dir, filename + ".csv")) or os.path.exists(os.path.join(data_dir, filename + ".pkl"))):
+        logger.debug(
+            f"Refreshing... downloading bars for {tickers} from {start_date} to {end_date} with timeframe {timeframe.value}")
+        bars = client.get_stock_bars(request_params).df  # get the bars
+        # convert all the dates to est. this is a multi-index dataframe, so we need to convert the index
+        bars.index = bars.index.map(lambda x: (x[0], x[1].astimezone(eastern)))
+        if resample:
+            bars = BarUtils.resample_multi_ticker_bars(bars)
+        save_dataframe(bars, filename, data_dir)
+        logger.debug(f"Saved bars to {filename}")
+
+    return load_dataframe(filename, data_dir)
+
+
 def download_close_prices(tickers: list[str], start_date: datetime, end_date: datetime,
                           timeframe: TimeFrame, refresh_bars: bool = False,
-                          data_dir: str = getenv("DATA_DIR"), filename: str | None = None) -> pd.DataFrame:
+                          data_dir: str = getenv("DATA_DIR"),) -> pd.DataFrame:
     """Download the bars for the given tickers. Will first check if the bars are already downloaded and if not, will download them.
     This requires an Alpaca API key.
     Args:
@@ -43,39 +108,18 @@ def download_close_prices(tickers: list[str], start_date: datetime, end_date: da
     Returns:
         pd.DataFrame: The close prices for the given tickers, resampled to the given timeframe.
     """
-    logger.info(
-        f"Downloading close prices for {len(tickers)} tickers from {start_date} to {end_date} with timeframe {timeframe.value}")
-    ALPACA_API_KEY = getenv("ALPACA_API_KEY")
-    ALPACA_API_SECRET = getenv("ALPACA_API_SECRET")
-    client = StockHistoricalDataClient(
-        api_key=ALPACA_API_KEY, secret_key=ALPACA_API_SECRET
-    )
-    request_params = StockBarsRequest(
-        symbol_or_symbols=tickers,
-        timeframe=timeframe,
-        start=start_date,
-        end=end_date,
-        adjustment="all",
-    )
-    if filename is None:
-        filename = f"{'_'.join(tickers)}_{start_date.strftime('%Y-%m-%d')}_{end_date.strftime('%Y-%m-%d')}_{timeframe.value}"
+    filename = f"{'_'.join(tickers)}_{start_date.strftime('%Y-%m-%d')}_{end_date.strftime('%Y-%m-%d')}_{timeframe.value}_close_prices"
 
-    if refresh_bars or not (os.path.exists(os.path.join(data_dir, filename + "_close_prices.csv")) or os.path.exists(os.path.join(data_dir, filename + "_close_prices.pkl"))):
-        bars = client.get_stock_bars(request_params).df  # get the bars
-        # save_dataframe(bars, filename, data_dir)  # save the bars
-        # bars = load_dataframe(filename, data_dir)  # load the bars
-        # convert all the dates to est. this is a multi-index dataframe, so we need to convert the index
-        bars.index = bars.index.map(lambda x: (x[0], x[1].astimezone(eastern)))
-        # resample the bars. apply to each ticker
-        bars = BarUtils.resample_multi_ticker_bars(bars)
-        # save_dataframe(bars, filename + "_resampled", data_dir)
-        # get the close prices
+    if refresh_bars or not (os.path.exists(os.path.join(data_dir, filename + ".csv")) or os.path.exists(os.path.join(data_dir, filename + ".pkl"))):
+        logger.debug(
+            f"Refreshing... downloading bars for {tickers} from {start_date} to {end_date} with timeframe {timeframe.value}")
+        bars = download_bars(tickers, start_date, end_date,
+                             timeframe, refresh_bars, data_dir)
         close_prices = bars["close"].unstack(level=0)
-        save_dataframe(close_prices, filename + "_close_prices", data_dir)
-        logger.info(f"Saved close prices to {filename}_close_prices")
+        save_dataframe(close_prices, filename, data_dir)
+        logger.debug(f"Saved close prices to {filename}")
 
-    logger.info(f"Loading close prices from {filename}_close_prices")
-    return load_dataframe(filename + "_close_prices", data_dir)
+    return load_dataframe(filename, data_dir)
 
 
 class BarUtils:

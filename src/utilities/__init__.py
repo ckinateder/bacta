@@ -93,7 +93,9 @@ def save_dataframe(
         None
     """
     path = os.path.join(data_dir, filename)
+    logger.debug(f"Saving {path + '.csv'}")
     df.to_csv(path + ".csv")
+    logger.debug(f"Saving {path + '.pkl'}")
     df.to_pickle(path + ".pkl")
 
 
@@ -103,10 +105,10 @@ def load_dataframe(
     """Load the data from a CSV and pickle file."""
     path = os.path.join(data_dir, filename)
     if os.path.exists(path + ".pkl"):
-        logger.info(f"Loading {path + '.pkl'}")
+        logger.debug(f"Loading {path + '.pkl'}")
         return pd.read_pickle(path + ".pkl")
     elif os.path.exists(path + ".csv"):
-        logger.info(f"Loading {path + '.csv'}")
+        logger.debug(f"Loading {path + '.csv'}")
         return pd.read_csv(path + ".csv")
     logger.error(f"File {path} not found.")
     raise FileNotFoundError(f"File {path} not found.")

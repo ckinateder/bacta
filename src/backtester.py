@@ -1,9 +1,12 @@
 from abc import ABC, abstractmethod
+from datetime import datetime, timedelta
 from enum import Enum
 
+from alpaca.data.timeframe import TimeFrame
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from yfinance.base import PriceHistory
 
 # path wrangling
 try:
@@ -12,8 +15,10 @@ except ImportError:
     from __init__ import Position, get_logger
 
 from src.utilities import dash, load_dataframe
+from src.utilities.bars import download_bars, download_close_prices
 from src.utilities.market import is_market_open
-from src.utilities.plotting import plt_show, DEFAULT_FIGSIZE
+from src.utilities.plotting import DEFAULT_FIGSIZE, plt_show
+
 
 # Get logger for this module
 logger = get_logger("backtester")
@@ -633,10 +638,22 @@ class SMABacktester(EventBacktester):
 
 if __name__ == "__main__":
     backtester = SMABacktester(["NEE", "EXC"], cash=1000)
+    utility_tickers = [
+        "NEE", "EXC", "D", "PCG", "XEL",
+        "ED", "WEC", "DTE", "PPL", "AEE",
+        "CNP", "FE", "CMS", "EIX", "ETR",
+        "EVRG", "LNT", "PNW", "IDA", "AEP",
+        "DUK", "SRE", "ATO", "NRG",
+    ]
+    prices = download_close_prices(utility_tickers, start_date=datetime(
+        2024, 1, 1), end_date=datetime.now() - timedelta(minutes=15), timeframe=TimeFrame.Hour).tail(1000)
 
-    filename = "NEE_EXC_D_PCG_XEL_ED_WEC_DTE_PPL_AEE_CNP_FE_CMS_EIX_ETR_EVRG_LNT_PNW_IDA_AEP_DUK_SRE_ATO_NRG_2023-01-01_2025-07-19_1Hour_close_prices"
-    prices = load_dataframe(filename)
-    prices = prices[["NEE", "EXC"]].tail(1000)
+    bars = download_bars(["CMS", "DTE"], start_date=datetime(
+        2023, 1, 1), end_date=datetime.now() - timedelta(minutes=15), timeframe=TimeFrame.Hour)
+
+    import pdb
+    pdb.set_trace()
+
     midpoint = int(prices.shape[0] * 0.8)
     train_prices = prices.iloc[:midpoint]
     test_prices = prices.iloc[midpoint:]
