@@ -26,14 +26,14 @@ logger = get_logger("utilities.bars")
 load_dotenv()
 
 
-def download_bars(tickers: list[str], start_date: datetime, end_date: datetime,
+def download_bars(symbols: list[str], start_date: datetime, end_date: datetime,
                   timeframe: TimeFrame, refresh_bars: bool = False,
                   data_dir: str = getenv("DATA_DIR"), resample: bool = True) -> pd.DataFrame:
-    """Download the bars for the given tickers. Will first check if the bars are already downloaded and if not, will download them.
+    """Download the bars for the given symbols. Will first check if the bars are already downloaded and if not, will download them.
     This requires an Alpaca API key.
 
     Args:
-        tickers (list[str]): The tickers to download bars for.
+        symbols (list[str]): The symbols to download bars for.
         start_date (datetime): The start date to download bars for.
         end_date (datetime): The end date to download bars for.
         timeframe (TimeFrame): The timeframe to download bars for.
@@ -42,8 +42,8 @@ def download_bars(tickers: list[str], start_date: datetime, end_date: datetime,
         resample (bool, optional): Whether to resample the bars. Defaults to True.
 
     Returns:
-        pd.DataFrame: The bars for the given tickers, resampled to the given timeframe. 
-        This is a multi-index dataframe with the tickers as the first level and the timestamp as the second level.
+        pd.DataFrame: The bars for the given symbols, resampled to the given timeframe. 
+        This is a multi-index dataframe with the symbols as the first level and the timestamp as the second level.
         Example:
                                             open    high  ...    volume  trade_count
         symbol timestamp                                   ...                       
@@ -62,58 +62,58 @@ def download_bars(tickers: list[str], start_date: datetime, end_date: datetime,
     start_date = start_date.strftime("%Y-%m-%d")
     end_date = end_date.strftime("%Y-%m-%d")
     logger.debug(
-        f"Loading close prices for {len(tickers)} tickers from {start_date} to {end_date} with timeframe {timeframe.value}")
+        f"Loading close prices for {len(symbols)} symbols from {start_date} to {end_date} with timeframe {timeframe.value}")
     ALPACA_API_KEY = getenv("ALPACA_API_KEY")
     ALPACA_API_SECRET = getenv("ALPACA_API_SECRET")
     client = StockHistoricalDataClient(
         api_key=ALPACA_API_KEY, secret_key=ALPACA_API_SECRET
     )
     request_params = StockBarsRequest(
-        symbol_or_symbols=tickers,
+        symbol_or_symbols=symbols,
         timeframe=timeframe,
         start=start_date,
         end=end_date,
         adjustment="all",
     )
-    filename = f"{'_'.join(tickers)}_{start_date}_{end_date}_{timeframe.value}"
+    filename = f"{'_'.join(symbols)}_{start_date}_{end_date}_{timeframe.value}"
 
     if refresh_bars or not (os.path.exists(os.path.join(data_dir, filename + ".csv")) or os.path.exists(os.path.join(data_dir, filename + ".pkl"))):
         logger.debug(
-            f"Refreshing... downloading bars for {tickers} from {start_date} to {end_date} with timeframe {timeframe.value}")
+            f"Refreshing... downloading bars for {symbols} from {start_date} to {end_date} with timeframe {timeframe.value}")
         bars = client.get_stock_bars(request_params).df  # get the bars
         # convert all the dates to est. this is a multi-index dataframe, so we need to convert the index
         bars.index = bars.index.map(lambda x: (x[0], x[1].astimezone(eastern)))
         if resample:
-            bars = BarUtils.resample_multi_ticker_bars(bars)
+            bars = BarUtils.resample_multi_symbol_bars(bars)
         save_dataframe(bars, filename, data_dir)
         logger.debug(f"Saved bars to {filename}")
 
     return load_dataframe(filename, data_dir)
 
 
-def download_close_prices(tickers: list[str], start_date: datetime, end_date: datetime,
+def download_close_prices(symbols: list[str], start_date: datetime, end_date: datetime,
                           timeframe: TimeFrame, refresh_bars: bool = False,
                           data_dir: str = getenv("DATA_DIR"),) -> pd.DataFrame:
-    """Download the bars for the given tickers. Will first check if the bars are already downloaded and if not, will download them.
+    """Download the bars for the given symbols. Will first check if the bars are already downloaded and if not, will download them.
     This requires an Alpaca API key.
     Args:
-        tickers (list[str]): The tickers to download bars for.
+        symbols (list[str]): The symbols to download bars for.
         start_date (datetime): The start date to download bars for.
         end_date (datetime): The end date to download bars for.
         timeframe (TimeFrame): The timeframe to download bars for.
         refresh_bars (bool): Whether to force refresh the bars. If False, will check if the bars are already downloaded and if not, will download them.
         data_dir (str): The directory to save the bars.
-        filename (str): The filename to save the bars to. If None, will be a combination of the tickers, start date, end date, and timeframe.
+        filename (str): The filename to save the bars to. If None, will be a combination of the symbols, start date, end date, and timeframe.
 
     Returns:
-        pd.DataFrame: The close prices for the given tickers, resampled to the given timeframe.
+        pd.DataFrame: The close prices for the given symbols, resampled to the given timeframe.
     """
-    filename = f"{'_'.join(tickers)}_{start_date.strftime('%Y-%m-%d')}_{end_date.strftime('%Y-%m-%d')}_{timeframe.value}_close_prices"
+    filename = f"{'_'.join(symbols)}_{start_date.strftime('%Y-%m-%d')}_{end_date.strftime('%Y-%m-%d')}_{timeframe.value}_close_prices"
 
     if refresh_bars or not (os.path.exists(os.path.join(data_dir, filename + ".csv")) or os.path.exists(os.path.join(data_dir, filename + ".pkl"))):
         logger.debug(
-            f"Refreshing... downloading bars for {tickers} from {start_date} to {end_date} with timeframe {timeframe.value}")
-        bars = download_bars(tickers, start_date, end_date,
+            f"Refreshing... downloading bars for {symbols} from {start_date} to {end_date} with timeframe {timeframe.value}")
+        bars = download_bars(symbols, start_date, end_date,
                              timeframe, refresh_bars, data_dir)
         close_prices = bars["close"].unstack(level=0)
         save_dataframe(close_prices, filename, data_dir)
@@ -123,22 +123,22 @@ def download_close_prices(tickers: list[str], start_date: datetime, end_date: da
 
 
 def separate_bars_by_symbol(bars: pd.DataFrame) -> dict[str, pd.DataFrame]:
-    """Separate the bars into individual ticker dataframes.
+    """Separate the bars into individual symbol dataframes.
     Args:
-        bars (pd.DataFrame): The bars to split. Multi-index with (ticker, timestamp) index and OHLCV columns.
+        bars (pd.DataFrame): The bars to split. Multi-index with (symbol, timestamp) index and OHLCV columns.
 
     Returns:
-        dict[str, pd.DataFrame]: A dictionary of ticker dataframes.
+        dict[str, pd.DataFrame]: A dictionary of symbol dataframes.
     """
-    tickers = bars.index.get_level_values(0).unique()
-    return {ticker: bars.xs(ticker, level=0) for ticker in tickers}
+    symbols = bars.index.get_level_values(0).unique()
+    return {symbol: bars.xs(symbol, level=0) for symbol in symbols}
 
 
 def split_bars_train_test(bars: pd.DataFrame, split_ratio: float = 0.8) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Split the bars into train and test sets.
 
     Args:
-        bars (pd.DataFrame): The bars to split. Multi-index with (ticker, timestamp) index and OHLCV columns.
+        bars (pd.DataFrame): The bars to split. Multi-index with (symbol, timestamp) index and OHLCV columns.
         split_ratio (float, optional): The ratio of the bars to split into train and test. Defaults to 0.8.
 
     Raises:
@@ -147,21 +147,21 @@ def split_bars_train_test(bars: pd.DataFrame, split_ratio: float = 0.8) -> tuple
     Returns:
         tuple[pd.DataFrame, pd.DataFrame]: The train and test bars.
     """
-    assert bars.index.nlevels == 2, "Bars must have a multi-index with (ticker, timestamp) index"
-    tickers = bars.index.get_level_values(0).unique()
-    # split the bars into individual ticker dataframes
-    ticker_bars = separate_bars_by_symbol(bars)
-    # make sure each ticker has the same number of bars
-    num_bars = ticker_bars[tickers[0]].shape[0]
-    for ticker in tickers:
-        assert ticker_bars[ticker].shape[
-            0] == num_bars, f"Bars for {ticker} must have the same number of bars, try resampling and/or changing the timeframe"
+    assert bars.index.nlevels == 2, "Bars must have a multi-index with (symbol, timestamp) index"
+    symbols = bars.index.get_level_values(0).unique()
+    # split the bars into individual symbol dataframes
+    symbol_bars = separate_bars_by_symbol(bars)
+    # make sure each symbol has the same number of bars
+    num_bars = symbol_bars[symbols[0]].shape[0]
+    for symbol in symbols:
+        assert symbol_bars[symbol].shape[
+            0] == num_bars, f"Bars for {symbol} must have the same number of bars, try resampling and/or changing the timeframe"
 
     # split the bars into train and test
-    train_bars = {ticker: ticker_bars[ticker].iloc[:int(
-        len(ticker_bars[ticker]) * split_ratio)] for ticker in tickers}
-    test_bars = {ticker: ticker_bars[ticker].iloc[int(
-        len(ticker_bars[ticker]) * split_ratio):] for ticker in tickers}
+    train_bars = {symbol: symbol_bars[symbol].iloc[:int(
+        len(symbol_bars[symbol]) * split_ratio)] for symbol in symbols}
+    test_bars = {symbol: symbol_bars[symbol].iloc[int(
+        len(symbol_bars[symbol]) * split_ratio):] for symbol in symbols}
     # recombine the bars into a multi-index dataframe
     train_bars = pd.concat(train_bars, axis=0)
     test_bars = pd.concat(test_bars, axis=0)
@@ -214,47 +214,47 @@ class BarUtils:
         return output
 
     @staticmethod
-    def resample_multi_ticker_bars(
+    def resample_multi_symbol_bars(
         bars: pd.DataFrame, time_frame: timedelta = timedelta(hours=1)
     ) -> pd.DataFrame:
         """Resample the bars to the given time frame and fill the missing values.
         For OHLC, use the last value in the time frame to fill forward.
         For volume and trade count, fill with 0.
-        THIS IS FOR MULTIPLE TICKERS. Use groupby to apply to multiple tickers.
+        THIS IS FOR MULTIPLE symbolS. Use groupby to apply to multiple symbols.
 
         Args:
-            bars (pd.DataFrame): The bars to resample. Multi-index with (ticker, timestamp) index and OHLCV columns.
+            bars (pd.DataFrame): The bars to resample. Multi-index with (symbol, timestamp) index and OHLCV columns.
             time_frame (timedelta, optional): The time frame to resample to. Defaults to timedelta(hours=1).
 
         Returns:
-            pd.DataFrame: The resampled bars. Multi-index with (ticker, timestamp) index and OHLCV columns.
+            pd.DataFrame: The resampled bars. Multi-index with (symbol, timestamp) index and OHLCV columns.
         """
-        # Create a list to store resampled data for each ticker
+        # Create a list to store resampled data for each symbol
         resampled_data = []
 
-        # Get unique tickers
-        tickers = bars.index.get_level_values("symbol").unique()
+        # Get unique symbols
+        symbols = bars.index.get_level_values("symbol").unique()
 
         latest_start = None
         earliest_end = None
 
-        # Process each ticker
-        for ticker in tickers:
-            # Get data for this ticker
-            ticker_data = bars.loc[ticker]
-            # start and end of the ticker data
-            start = ticker_data.index.get_level_values("timestamp").min()
-            end = ticker_data.index.get_level_values("timestamp").max()
+        # Process each symbol
+        for symbol in symbols:
+            # Get data for this symbol
+            symbol_data = bars.loc[symbol]
+            # start and end of the symbol data
+            start = symbol_data.index.get_level_values("timestamp").min()
+            end = symbol_data.index.get_level_values("timestamp").max()
             if latest_start is None or start > latest_start:
                 latest_start = start
             if earliest_end is None or end < earliest_end:
                 earliest_end = end
 
             # Resample the data
-            resampled_ticker = BarUtils.resample_bars(ticker_data, time_frame)
-            # Add the ticker back to the index
-            resampled_ticker["symbol"] = ticker
-            resampled_data.append(resampled_ticker)
+            resampled_symbol = BarUtils.resample_bars(symbol_data, time_frame)
+            # Add the symbol back to the index
+            resampled_symbol["symbol"] = symbol
+            resampled_data.append(resampled_symbol)
 
         # trim the data to the latest start and earliest end
         for i in range(len(resampled_data)):
@@ -275,7 +275,7 @@ class BarUtils:
         """Resample the bars to the given time frame and fill the missing values.
         For OHLC, use the last value in the time frame to fill forward.
         For volume and trade count, fill with 0.
-        THIS IS FOR ONE TICKER. Use groupby to apply to multiple tickers.
+        THIS IS FOR ONE symbol. Use groupby to apply to multiple symbols.
 
         Args:
             bars (pd.DataFrame): The bars to resample. Single index with timestamp index and OHLCV columns.

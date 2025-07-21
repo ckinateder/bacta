@@ -43,7 +43,7 @@ class PairSelector:
         """Given a set of close prices, select the pairs with the lowest spread.
 
         Args:
-            close_prices (pd.DataFrame): A dataframe of close prices for the tickers.
+            close_prices (pd.DataFrame): A dataframe of close prices for the symbols.
 
         Returns:
             pd.DataFrame: A dataframe of the pairs with the lowest spread.
@@ -56,9 +56,9 @@ class PairSelector:
                 "The close prices must be monotonically increasing.")
 
         # stationarity testing
-        tickers = close_prices.columns
-        stationarity_results = pd.DataFrame(index=tickers, columns=tickers)
-        for primary, secondary in combinations(tickers, 2):
+        symbols = close_prices.columns
+        stationarity_results = pd.DataFrame(index=symbols, columns=symbols)
+        for primary, secondary in combinations(symbols, 2):
             if stationarity_results.loc[secondary, primary] is not np.nan:
                 stationarity_results.loc[primary, secondary] = stationarity_results.loc[
                     secondary, primary
@@ -83,7 +83,7 @@ class PairSelector:
         Coeffecients are selected by linear regression.
 
         Args:
-            close_prices (pd.DataFrame): A dataframe of close prices for the tickers.
+            close_prices (pd.DataFrame): A dataframe of close prices for the symbols.
 
         Returns:
             pd.DataFrame: A dataframe of the pairs with the lowest spread.
@@ -94,9 +94,9 @@ class PairSelector:
             raise ValueError(
                 "The close prices must be monotonically increasing.")
 
-        tickers = close_prices.columns
-        stationarity_results = pd.DataFrame(index=tickers, columns=tickers)
-        for primary, secondary in combinations(tickers, 2):
+        symbols = close_prices.columns
+        stationarity_results = pd.DataFrame(index=symbols, columns=symbols)
+        for primary, secondary in combinations(symbols, 2):
             if stationarity_results.loc[secondary, primary] is not np.nan:
                 stationarity_results.loc[primary, secondary] = stationarity_results.loc[
                     secondary, primary
@@ -106,7 +106,7 @@ class PairSelector:
 
 
 if __name__ == "__main__":
-    utility_tickers = [
+    utility_symbols = [
         "NEE",
         "EXC",
         "D",
@@ -142,7 +142,7 @@ if __name__ == "__main__":
     end_date = datetime.today() - timedelta(minutes=15)
     timeframe = TimeFrame.Hour
     request_params = StockBarsRequest(
-        symbol_or_symbols=utility_tickers,
+        symbol_or_symbols=utility_symbols,
         timeframe=timeframe,
         start=start_date,
         end=end_date,
@@ -158,8 +158,8 @@ if __name__ == "__main__":
         # convert all the dates to est. this is a multi-index dataframe, so we need to convert the index
         bars.index = bars.index.map(lambda x: (x[0], x[1].astimezone(eastern)))
 
-        # resample the bars. apply to each ticker
-        bars = BarUtils.resample_multi_ticker_bars(bars)
+        # resample the bars. apply to each symbol
+        bars = BarUtils.resample_multi_symbol_bars(bars)
         save_dataframe(bars, "utility_bars_resampled")
 
         # get the close prices
@@ -168,12 +168,12 @@ if __name__ == "__main__":
         save_dataframe(close_prices, "utility_close_prices")
 
         # earnings_dates = {
-        #    ticker: get_earnings_date(ticker) for ticker in utility_tickers
+        #    symbol: get_earnings_date(symbol) for symbol in utility_symbols
         # }
         # save_json(earnings_dates, "utility_earnings_dates")
 
     close_prices = download_close_prices(
-        utility_tickers, start_date, end_date, timeframe)
+        utility_symbols, start_date, end_date, timeframe)
     # earnings_dates = load_json("utility_earnings_dates")
     plot_price_data(close_prices, "Utility Price Data")
     plt_show(prefix="utility_price_data")
@@ -205,13 +205,13 @@ if __name__ == "__main__":
     )
     plt.grid(False)
     plt.title("Cointegration Results")
-    plt.xlabel("Ticker")
-    plt.ylabel("Ticker")
-    # add ticker labels
-    plt.xticks(np.arange(len(utility_tickers)) +
-               0.5, utility_tickers, rotation=30)
-    plt.yticks(np.arange(len(utility_tickers)) +
-               0.5, utility_tickers, rotation=0)
+    plt.xlabel("symbol")
+    plt.ylabel("symbol")
+    # add symbol labels
+    plt.xticks(np.arange(len(utility_symbols)) +
+               0.5, utility_symbols, rotation=30)
+    plt.yticks(np.arange(len(utility_symbols)) +
+               0.5, utility_symbols, rotation=0)
     plt_show(prefix="cointegration_results")
 
     # find the pair with the lowest p-value

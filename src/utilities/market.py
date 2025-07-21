@@ -26,22 +26,22 @@ eastern = pytz.timezone("US/Eastern")  # this is a timezone object
 DATA_DIR = getenv("DATA_DIR")
 
 # names
-SEC_TICKERS_FILENAME = "sec_tickers.json"
+SEC_symbolS_FILENAME = "sec_symbols.json"
 
 
-def get_earnings_date(ticker: str) -> datetime.date:
-    """Get the next earnings date for a given ticker."""
-    logger.info(f"Fetching earnings date for ticker: {ticker}")
-    stock = yf.Ticker(ticker)
+def get_earnings_date(symbol: str) -> datetime.date:
+    """Get the next earnings date for a given symbol."""
+    logger.info(f"Fetching earnings date for symbol: {symbol}")
+    stock = yf.symbol(symbol)
 
     # Fetch the calendar data, which includes upcoming events like the earnings date
     try:
         calendar = stock.calendar
         earnings_date = calendar["Earnings Date"][0]
-        logger.info(f"Found earnings date for {ticker}: {earnings_date}")
+        logger.info(f"Found earnings date for {symbol}: {earnings_date}")
         return earnings_date
     except Exception as e:
-        logger.error(f"Error fetching earnings date for {ticker}: {e}")
+        logger.error(f"Error fetching earnings date for {symbol}: {e}")
         return None
 
 
@@ -73,20 +73,20 @@ def is_market_open(dt: datetime) -> bool:
     return True
 
 
-def load_sec_tickers(data_dir: str = os.getenv("DATA_DIR")) -> pd.DataFrame:
-    """Load the CIK table downloaded from https://www.kaggle.com/datasets/svendaj/sec-edgar-cik-ticker-exchange.
+def load_sec_symbols(data_dir: str = os.getenv("DATA_DIR")) -> pd.DataFrame:
+    """Load the CIK table downloaded from https://www.kaggle.com/datasets/svendaj/sec-edgar-cik-symbol-exchange.
 
     Args:
         data_dir (str, optional): The directory to save the CIK table. Defaults to os.getenv("DATA_DIR").
 
     Returns:
-        pd.DataFrame: The CIK table. Index is cik, columns are name, ticker, and exchange.
+        pd.DataFrame: The CIK table. Index is cik, columns are name, symbol, and exchange.
     """
-    path = os.path.join(data_dir, SEC_TICKERS_FILENAME)
-    logger.info(f"Loading SEC tickers from: {path}")
+    path = os.path.join(data_dir, SEC_symbolS_FILENAME)
+    logger.info(f"Loading SEC symbols from: {path}")
 
     if not os.path.exists(path):
-        logger.error(f"SEC tickers file not found: {path}")
+        logger.error(f"SEC symbols file not found: {path}")
         raise FileNotFoundError(f"File {path} not found.")
 
     # Load the JSON file
@@ -96,7 +96,7 @@ def load_sec_tickers(data_dir: str = os.getenv("DATA_DIR")) -> pd.DataFrame:
     # Convert the JSON data to a pandas DataFrame
     df = pd.DataFrame(data=data["data"], columns=data["fields"])
     df.set_index("cik", inplace=True)
-    logger.info(f"Loaded {len(df)} SEC tickers")
+    logger.info(f"Loaded {len(df)} SEC symbols")
     return df
 
 

@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `plot_trade_history()` function is a new addition to the `EventBacktester` class that visualizes the trading activity of your backtester. It plots the price history of each ticker with markers showing where buy and sell orders were executed.
+The `plot_trade_history()` function is a new addition to the `EventBacktester` class that visualizes the trading activity of your backtester. It plots the price history of each symbol with markers showing where buy and sell orders were executed.
 
 ## Features
 
@@ -12,7 +12,7 @@ The `plot_trade_history()` function is a new addition to the `EventBacktester` c
   - Red triangles pointing down (v) for sell orders
 - **Quantity Annotations**: Shows the quantity traded at each marker
 - **Summary Statistics**: Displays total trades, volume, and average price
-- **Multi-ticker Support**: Creates separate subplots for each ticker
+- **Multi-symbol Support**: Creates separate subplots for each symbol
 
 ## Usage
 
@@ -20,7 +20,7 @@ The `plot_trade_history()` function is a new addition to the `EventBacktester` c
 from src.backtester import SMABacktester  # or any other backtester
 
 # Create and run your backtester
-backtester = SMABacktester(active_tickers=['AAPL'], cash=10000)
+backtester = SMABacktester(active_symbols=['AAPL'], cash=10000)
 backtester.load_train_bars(train_bars)
 backtester.run(test_bars, ignore_market_open=True)
 
@@ -64,7 +64,7 @@ The plot will show:
 The function includes error handling for:
 - Empty order history
 - Missing test bars data
-- Missing ticker data
+- Missing symbol data
 
 If any of these conditions are met, the function will log a warning and return `None`.
 

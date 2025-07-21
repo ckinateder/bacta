@@ -2,7 +2,7 @@
 
 Prototyping statistical arbitrage.
 
-![tickers](img/performance_analysis.png)
+![symbols](img/performance_analysis.png)
 
 ## Stack
 - Python
@@ -89,8 +89,8 @@ class SMABacktester(EventBacktester):
     Backtester that uses a simple moving average strategy.
     """
 
-    def __init__(self, active_tickers: list[str], cash: float = 100):
-        super().__init__(active_tickers, cash)
+    def __init__(self, active_symbols: list[str], cash: float = 100):
+        super().__init__(active_symbols, cash)
         self.short_window = 5
         self.long_window = 21
 
@@ -98,33 +98,33 @@ class SMABacktester(EventBacktester):
         """
         Preload the indicators for the backtest.
         """
-        self.sma_shorts = {ticker: bars.xs(ticker, level=0).loc[:, "close"].rolling(
-            window=self.short_window).mean() for ticker in self.active_tickers}
-        self.sma_longs = {ticker: bars.xs(ticker, level=0).loc[:, "close"].rolling(
-            window=self.long_window).mean() for ticker in self.active_tickers}
+        self.sma_shorts = {symbol: bars.xs(symbol, level=0).loc[:, "close"].rolling(
+            window=self.short_window).mean() for symbol in self.active_symbols}
+        self.sma_longs = {symbol: bars.xs(symbol, level=0).loc[:, "close"].rolling(
+            window=self.long_window).mean() for symbol in self.active_symbols}
 
     def update_step(self, bars: pd.DataFrame, index: pd.Timestamp):
         """
         Update the state of the backtester.
         """
         # update the indicators
-        self.sma_shorts = {ticker: bars.xs(ticker, level=0).loc[:, "close"].rolling(
-            window=self.short_window).mean() for ticker in self.active_tickers}
-        self.sma_longs = {ticker: bars.xs(ticker, level=0).loc[:, "close"].rolling(
-            window=self.long_window).mean() for ticker in self.active_tickers}
+        self.sma_shorts = {symbol: bars.xs(symbol, level=0).loc[:, "close"].rolling(
+            window=self.short_window).mean() for symbol in self.active_symbols}
+        self.sma_longs = {symbol: bars.xs(symbol, level=0).loc[:, "close"].rolling(
+            window=self.long_window).mean() for symbol in self.active_symbols}
 
     def take_action(self, bar: pd.DataFrame, index: pd.Timestamp):
         """
         Make a decision based on the prices.
         """
         close_prices = bar.loc[:, "close"]
-        for ticker in self.active_tickers:
-            if self.sma_shorts[ticker][index] > self.sma_longs[ticker][index]:
+        for symbol in self.active_symbols:
+            if self.sma_shorts[symbol][index] > self.sma_longs[symbol][index]:
                 self.place_order(Position.LONG, index,
-                                 ticker, close_prices[ticker], 1)
+                                 symbol, close_prices[symbol], 1)
             else:
                 self.place_order(Position.SHORT, index,
-                                 ticker, close_prices[ticker], 1)
+                                 symbol, close_prices[symbol], 1)
 ```
 2. Obtain bars in the multi-index form of (symbol, timestamp) x [open, high, low, close, vwap, volume, trade_count].
 ```
