@@ -151,22 +151,6 @@ if __name__ == "__main__":
 
     refresh_bars = False
     if refresh_bars:
-        bars = client.get_stock_bars(request_params).df  # get the bars
-        save_dataframe(bars, "utility_bars")  # save the bars
-        bars = load_dataframe("utility_bars")  # load the bars
-
-        # convert all the dates to est. this is a multi-index dataframe, so we need to convert the index
-        bars.index = bars.index.map(lambda x: (x[0], x[1].astimezone(eastern)))
-
-        # resample the bars. apply to each symbol
-        bars = BarUtils.resample_multi_symbol_bars(bars)
-        save_dataframe(bars, "utility_bars_resampled")
-
-        # get the close prices
-        close_prices = bars["close"].unstack(level=0)
-        # save the close prices
-        save_dataframe(close_prices, "utility_close_prices")
-
         # earnings_dates = {
         #    symbol: get_earnings_date(symbol) for symbol in utility_symbols
         # }

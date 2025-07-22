@@ -11,9 +11,9 @@ from tqdm import tqdm, trange
 
 # path wrangling
 try:
-    from src import Position, get_logger
+    from src import Position, get_logger, set_log_level
 except ImportError:
-    from __init__ import Position, get_logger
+    from __init__ import Position, get_logger, set_log_level
 
 from src.utilities import dash, load_dataframe
 from src.utilities.bars import download_bars, download_close_prices, separate_bars_by_symbol, split_bars_train_test
@@ -23,6 +23,14 @@ from src.utilities.plotting import DEFAULT_FIGSIZE, plt_show
 
 # Get logger for this module
 logger = get_logger("backtester")
+
+
+class Order:
+    def __init__(self, symbol: str, position: Position, price: float, quantity: float):
+        self.symbol = symbol
+        self.position = position
+        self.price = price
+        self.quantity = quantity
 
 
 class EventBacktester(ABC):
@@ -35,7 +43,7 @@ class EventBacktester(ABC):
     Functions to be overridden:
     - precompute_step: precompute_step the indicators for the backtest. Optional.
     - update_step: update the indicators for the backtest at each time step. Optional.
-    - take_action: make a decision based on the indicators and the latest bar.
+    - generate_order: make a decision based on the indicators and the latest bar.
 
     The backtester is designed to run purely on the test dataset.
     If the user wants to precompute_step the train bars, they must call the load_train_bars method before running the backtest.
@@ -46,7 +54,7 @@ class EventBacktester(ABC):
     These structures are updated based on the events that occur, and are used to calculate the performance of the backtester.
     The user may want to override the run method to handle the events.
 
-    To use this class, the user must override the take_action method. If necessary, the user can override the precompute_step and update_step methods.
+    To use this class, the user must override the generate_order method. If necessary, the user can override the precompute_step and update_step methods.
     The user can call the run method to run the backtest.
 
     The backtester is designed to be used with a multi-index dataframe of bars. The index is (symbol, timestamp) and the columns are OHLCV.
@@ -67,14 +75,18 @@ class EventBacktester(ABC):
 
     """
 
-    def __init__(self, active_symbols: list[str], cash: float = 100):
+    def __init__(self, active_symbols: list[str], cash: float = 100, **kwargs):
         """
         Initialize the backtester.
 
         Args:
             active_symbols (list[str]): The symbols to trade.
             cash (float, optional): The initial cash balance. Defaults to 100.
+            long_only (bool, optional): Whether to only allow long positions. Defaults to False.
         """
+        self.long_only = kwargs.get("long_only", False)
+        logger.debug(
+            f"Initializing backtester with active symbols: {active_symbols}, cash: {cash}, long_only: {self.long_only}")
         self.active_symbols = active_symbols
         self.initialize_bank(cash)
 
@@ -199,6 +211,17 @@ class EventBacktester(ABC):
         """
         Place a sell order for a given symbol.
         """
+        # check if state has enough of the symbol
+        if self.get_state()[symbol] < quantity and self.long_only:
+            quantity = self.get_state()[symbol]
+            logger.debug(
+                f"Not enough of {symbol} to sell. Selling {quantity} of {symbol}.")
+
+        if quantity == 0:
+            logger.debug(
+                f"No {symbol} to sell. Skipping sell order.")
+            return
+
         # update state
         self._update_state(symbol, price, quantity, Position.SHORT, index)
         self._update_history(symbol, price, quantity, Position.SHORT, index)
@@ -229,7 +252,7 @@ class EventBacktester(ABC):
                     self._place_buy_order(
                         symbol, prices[symbol], abs(position), index)
 
-    def run(self, test_bars: pd.DataFrame, ignore_market_open: bool = False, close_positions: bool = True):
+    def run(self, test_bars: pd.DataFrame, ignore_market_open: bool = False, close_positions: bool = True, long_only: bool = False):
         """
         Run a single period of the backtest over the given dataframe.
         Assume that prices have their indicators already calculated and are in the prices dataframe.
@@ -239,6 +262,7 @@ class EventBacktester(ABC):
                 See the class docstring for more details.
             ignore_market_open (bool, optional): Whether to ignore the market operating hours. Defaults to False.
             close_positions (bool, optional): Whether to close positions at the end of the backtest. Defaults to True.
+            long_only (bool, optional): Whether to only allow long positions. Defaults to False.
         """
         # check if the bars are in the correct format
         assert test_bars.index.nlevels == 2, "Bars must have a multi-index with (symbol, timestamp) index"
@@ -278,7 +302,12 @@ class EventBacktester(ABC):
             if ignore_market_open or is_market_open(index):
                 # make a decision
                 current_bar = full_bars.xs(index, level=1)
-                self.take_action(current_bar, index)
+                order = self.generate_order(current_bar, index)
+
+                # place the order if not None
+                if order is not None:
+                    self._place_order(order.position, index,
+                                      order.symbol, order.price, order.quantity)
 
                 # Update portfolio value with current close prices
                 current_close_prices = current_bar.loc[:, "close"]
@@ -402,7 +431,11 @@ class EventBacktester(ABC):
         max_drawdown = drawdown.min()
 
         # Add text box with performance metrics
-        textstr = f'Total Return: {total_return:.2f}%\nMax Drawdown: {max_drawdown:.2f}%\nFinal Value: ${final_value:.2f}'
+        textstr = (
+            f'Total Return: {total_return:.2f}%\n'
+            f'Max Drawdown: {max_drawdown:.2f}%\n'
+            f'Final Value: ${final_value:.2f}'
+        )
         props = dict(boxstyle='round', facecolor='wheat', alpha=0.8)
         ax.text(0.02, 0.98, textstr, transform=ax.transAxes, fontsize=10,
                 verticalalignment='top', bbox=props)
@@ -421,7 +454,7 @@ class EventBacktester(ABC):
         plt.tight_layout()
 
         if save_plot:
-            plt_show(prefix="equity_curve")
+            plt_show(prefix=title.replace(" ", "_"))
 
         if show_plot:
             plt.show()
@@ -557,7 +590,7 @@ class EventBacktester(ABC):
         plt.tight_layout()
 
         if save_plot:
-            plt_show(prefix="performance_analysis")
+            plt_show(prefix=title.replace(" ", "_"))
 
         if show_plot:
             plt.show()
@@ -679,7 +712,7 @@ class EventBacktester(ABC):
         plt.tight_layout()
 
         if save_plot:
-            plt_show(prefix="trade_history")
+            plt_show(prefix=title.replace(" ", "_"))
 
         if show_plot:
             plt.show()
@@ -716,7 +749,7 @@ class EventBacktester(ABC):
         pass
 
     @abstractmethod
-    def take_action(self, bars: pd.DataFrame, index: pd.Timestamp):
+    def generate_order(self, bars: pd.DataFrame, index: pd.Timestamp) -> Order:
         """
         Make a decision based on the current prices. This is meant to be overridden by the child class.
         This will place an order if needed.
@@ -765,8 +798,8 @@ class KeltnerChannelBacktester(EventBacktester):
     Backtester that uses the Keltner Channel to make decisions.
     """
 
-    def __init__(self, active_symbols, cash):
-        super().__init__(active_symbols, cash)
+    def __init__(self, active_symbols, cash, **kwargs):
+        super().__init__(active_symbols, cash, **kwargs)
         self.keltner_channel_period = 21
 
     def precompute_step(self, bars: pd.DataFrame):
@@ -794,18 +827,17 @@ class KeltnerChannelBacktester(EventBacktester):
         self.lower_bands = {symbol: self.middle_bands[symbol] - 2 * ATR(split_bars[symbol].loc[:, "high"], split_bars[symbol].loc[:, "low"],
                                                                         split_bars[symbol].loc[:, "close"], timeperiod=self.keltner_channel_period) for symbol in self.active_symbols}
 
-    def take_action(self, bar: pd.DataFrame, index: pd.Timestamp):
+    def generate_order(self, bar: pd.DataFrame, index: pd.Timestamp) -> Order:
         """
         Make a decision based on the prices.
         """
         close_prices = bar.loc[:, "close"]
+
         for symbol in self.active_symbols:
             if close_prices[symbol] > self.upper_bands[symbol][index]:
-                self._place_order(Position.SHORT, index,
-                                  symbol, close_prices[symbol], 1)
+                return Order(symbol, Position.SHORT, close_prices[symbol], 1)
             elif close_prices[symbol] < self.lower_bands[symbol][index]:
-                self._place_order(Position.LONG, index,
-                                  symbol, close_prices[symbol], 1)
+                return Order(symbol, Position.LONG, close_prices[symbol], 1)
 
 
 if __name__ == "__main__":
@@ -820,8 +852,8 @@ if __name__ == "__main__":
     bars = download_bars(symbols, start_date=datetime(
         2024, 1, 1), end_date=datetime.now() - timedelta(minutes=15), timeframe=TimeFrame.Hour)
 
-    train_bars, test_bars = split_bars_train_test(bars, split_ratio=0.95)
-    backtester = KeltnerChannelBacktester(symbols, cash=2000)
+    train_bars, test_bars = split_bars_train_test(bars, split_ratio=0.9)
+    backtester = KeltnerChannelBacktester(symbols, cash=2000, long_only=True)
     backtester.load_train_bars(train_bars)
     backtester.run(test_bars, ignore_market_open=False)
 
@@ -835,7 +867,9 @@ if __name__ == "__main__":
 
     # Plot the equity curve
     print(dash("plotting..."))
-    backtester.plot_equity_curve(title="SMA Strategy Equity Curve")
+    backtester.plot_equity_curve(
+        title="KC Strategy Equity Curve "+"_".join(symbols))
     backtester.plot_performance_analysis(
-        title="SMA Strategy Performance Analysis")
-    backtester.plot_trade_history(title="SMA Strategy Trade History")
+        title="KC Strategy Performance Analysis "+"_".join(symbols))
+    backtester.plot_trade_history(
+        title="KC Strategy Trade History "+"_".join(symbols))

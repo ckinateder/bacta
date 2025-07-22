@@ -74,11 +74,11 @@ The `EventBacktester` class has the following predefined user-facing methods:
 
 The user must implement the following methods:
 
-- `take_action(bar: pd.DataFrame, index: pd.Timestamp)`: Make a decision based on the prices. This method is called by `run`.
+- `generate_order(bar: pd.DataFrame, index: pd.Timestamp) -> Order`: Make a decision based on the prices. This method is called by `run` and returns an `Order` object.
 - `update_step(bars: pd.DataFrame, index: pd.Timestamp)`: Update the state of the backtester. This method is called by `run`.
 - (optional) `precompute_step(bars: pd.DataFrame)`: Preload the indicators for the backtest. This method is called by `load_train_bars`.
 
-In a typical workflow, the user will implement the `take_action` and `update_step` methods, and optionally the `precompute_step` method. The user will first call the `load_train_bars` method to load the training bars into the backtester. This method then calls the `precompute_step` method, which the user must implement. The user can then call the `run` method to run the backtest. This method will call the `update_step` method for each bar in the test bars, and then call the `take_action` method for each bar in the test bars.
+In a typical workflow, the user will implement the `generate_order` and `update_step` methods, and optionally the `precompute_step` method. The user will first call the `load_train_bars` method to load the training bars into the backtester. This method then calls the `precompute_step` method, which the user must implement. The user can then call the `run` method to run the backtest. This method will call the `update_step` method for each bar in the test bars, and then call the `generate_order` method for each bar in the test bars.
 
 #### Example
 
@@ -113,7 +113,7 @@ class SMABacktester(EventBacktester):
         self.sma_longs = {symbol: bars.xs(symbol, level=0).loc[:, "close"].rolling(
             window=self.long_window).mean() for symbol in self.active_symbols}
 
-    def take_action(self, bar: pd.DataFrame, index: pd.Timestamp):
+    def generate_order(self, bar: pd.DataFrame, index: pd.Timestamp):
         """
         Make a decision based on the prices.
         """
