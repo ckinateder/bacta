@@ -66,7 +66,7 @@ Central to this project is the backtester module. The `EventBacktester` is desig
 The `EventBacktester` class has the following predefined user-facing methods:
 
 - `load_train_bars(bars: pd.DataFrame)`: Load the training bars for the backtest. This method then calls the `precompute_step` method.
-- `run(test_bars: pd.DataFrame, ignore_market_open: bool = False, close_positions: bool = True)`: Run the backtest.
+- `run(test_bars: pd.DataFrame, ignore_market_open: bool = False, close_positions: bool = True, allow_short: bool = True)`: Run the backtest.
 - `plot_equity_curve(title: str = "Equity Curve", save_plot: bool = True, show_plot: bool = False)`: Plot the equity curve.
 - `plot_performance_analysis(title: str = "Performance Analysis", save_plot: bool = True, show_plot: bool = False)`: Plot the performance analysis.
 - `plot_trade_history(title: str = "Trade History", save_plot: bool = True, show_plot: bool = False)`: Plot the trade history.

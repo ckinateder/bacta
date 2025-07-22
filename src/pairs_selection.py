@@ -11,7 +11,8 @@ import pandas as pd
 import seaborn as sns
 from statsmodels.tsa.stattools import adfuller
 
-from __init__ import Position, get_logger, set_log_level
+from __init__ import get_logger, set_log_level
+from backtester import Position
 from utilities import load_dataframe, load_json, save_dataframe, save_json, getenv
 from utilities.bars import BarUtils, download_close_prices
 from utilities.market import get_earnings_date, eastern

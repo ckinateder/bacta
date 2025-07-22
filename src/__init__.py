@@ -6,12 +6,6 @@ from enum import Enum
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
-class Position(Enum):
-    LONG = 1
-    SHORT = -1
-    NEUTRAL = 0
-
-
 class CustomFormatter(logging.Formatter):
     """Custom formatter for the logger."""
 

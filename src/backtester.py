@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
 from enum import Enum
+import logging
 
 from alpaca.data.timeframe import TimeFrame
 import matplotlib.pyplot as plt
@@ -11,9 +12,9 @@ from tqdm import tqdm, trange
 
 # path wrangling
 try:
-    from src import Position, get_logger, set_log_level
+    from src import get_logger, set_log_level
 except ImportError:
-    from __init__ import Position, get_logger, set_log_level
+    from __init__ import get_logger, set_log_level
 
 from src.utilities import dash, load_dataframe
 from src.utilities.bars import download_bars, download_close_prices, separate_bars_by_symbol, split_bars_train_test
@@ -25,12 +26,28 @@ from src.utilities.plotting import DEFAULT_FIGSIZE, plt_show
 logger = get_logger("backtester")
 
 
+class Position(Enum):
+    LONG = 1
+    SHORT = -1
+    NEUTRAL = 0
+
+
 class Order:
     def __init__(self, symbol: str, position: Position, price: float, quantity: float):
+        """
+        Order object. This is used to represent an order to be placed.
+
+        Args:
+            symbol (str): The symbol of the asset.
+            position (Position): The position to take.
+            price (float): The price of the asset.
+            quantity (float): The quantity of the asset.
+        """
         self.symbol = symbol
         self.position = position
         self.price = price
         self.quantity = quantity
+        self.value = price * quantity  # the value of the order
 
 
 class EventBacktester(ABC):
@@ -82,11 +99,10 @@ class EventBacktester(ABC):
         Args:
             active_symbols (list[str]): The symbols to trade.
             cash (float, optional): The initial cash balance. Defaults to 100.
-            long_only (bool, optional): Whether to only allow long positions. Defaults to False.
+            **kwargs: Additional keyword arguments.
         """
-        self.long_only = kwargs.get("long_only", False)
         logger.debug(
-            f"Initializing backtester with active symbols: {active_symbols}, cash: {cash}, long_only: {self.long_only}")
+            f"Initializing backtester with active symbols: {active_symbols}, cash: {cash}")
         self.active_symbols = active_symbols
         self.initialize_bank(cash)
 
@@ -211,17 +227,6 @@ class EventBacktester(ABC):
         """
         Place a sell order for a given symbol.
         """
-        # check if state has enough of the symbol
-        if self.get_state()[symbol] < quantity and self.long_only:
-            quantity = self.get_state()[symbol]
-            logger.debug(
-                f"Not enough of {symbol} to sell. Selling {quantity} of {symbol}.")
-
-        if quantity == 0:
-            logger.debug(
-                f"No {symbol} to sell. Skipping sell order.")
-            return
-
         # update state
         self._update_state(symbol, price, quantity, Position.SHORT, index)
         self._update_history(symbol, price, quantity, Position.SHORT, index)
@@ -252,7 +257,7 @@ class EventBacktester(ABC):
                     self._place_buy_order(
                         symbol, prices[symbol], abs(position), index)
 
-    def run(self, test_bars: pd.DataFrame, ignore_market_open: bool = False, close_positions: bool = True, long_only: bool = False):
+    def run(self, test_bars: pd.DataFrame, ignore_market_open: bool = False, close_positions: bool = True, allow_short: bool = True, allow_overdraft: bool = False):
         """
         Run a single period of the backtest over the given dataframe.
         Assume that prices have their indicators already calculated and are in the prices dataframe.
@@ -262,7 +267,8 @@ class EventBacktester(ABC):
                 See the class docstring for more details.
             ignore_market_open (bool, optional): Whether to ignore the market operating hours. Defaults to False.
             close_positions (bool, optional): Whether to close positions at the end of the backtest. Defaults to True.
-            long_only (bool, optional): Whether to only allow long positions. Defaults to False.
+            allow_short (bool, optional): Whether to allow short positions. If False, will not allow the backtester to shortsell. Defaults to True.
+            allow_overdraft (bool, optional): Whether to allow overdraft in the bank. If False, will not allow the backtester to go into negative cash. Defaults to False.
         """
         # check if the bars are in the correct format
         assert test_bars.index.nlevels == 2, "Bars must have a multi-index with (symbol, timestamp) index"
@@ -306,8 +312,23 @@ class EventBacktester(ABC):
 
                 # place the order if not None
                 if order is not None:
-                    self._place_order(order.position, index,
-                                      order.symbol, order.price, order.quantity)
+                    # check if state has enough of the symbol
+                    if not allow_short and order.position == Position.SHORT and self.get_state()[order.symbol] < order.quantity:
+                        order.quantity = self.get_state()[order.symbol]
+                        logger.debug(
+                            f"Not enough of {order.symbol} to sell. Selling {order.quantity} of {order.symbol}.")
+
+                    if not allow_overdraft and order.position == Position.LONG and self.get_state()["cash"] < order.value:
+                        logger.debug(
+                            f"Not enough cash to buy {order.quantity} of {order.symbol} at {order.price}.")
+                        order.quantity = 0
+
+                    if order.quantity == 0:
+                        logger.debug(
+                            f"Skipping {order.position.name} order for {order.symbol} because quantity is 0.")
+                    else:
+                        self._place_order(order.position, index,
+                                          order.symbol, order.price, order.quantity)
 
                 # Update portfolio value with current close prices
                 current_close_prices = current_bar.loc[:, "close"]
@@ -841,7 +862,8 @@ class KeltnerChannelBacktester(EventBacktester):
 
 
 if __name__ == "__main__":
-    symbols = ["NEE", "EXC"]
+    logger.setLevel(logging.DEBUG)
+    symbols = ["DUK", "NEE"]
     utility_symbols = [
         "NEE", "EXC", "D", "PCG", "XEL",
         "ED", "WEC", "DTE", "PPL", "AEE",
@@ -853,9 +875,9 @@ if __name__ == "__main__":
         2024, 1, 1), end_date=datetime.now() - timedelta(minutes=15), timeframe=TimeFrame.Hour)
 
     train_bars, test_bars = split_bars_train_test(bars, split_ratio=0.9)
-    backtester = KeltnerChannelBacktester(symbols, cash=2000, long_only=True)
+    backtester = KeltnerChannelBacktester(symbols, cash=1000)
     backtester.load_train_bars(train_bars)
-    backtester.run(test_bars, ignore_market_open=False)
+    backtester.run(test_bars, ignore_market_open=False, allow_short=False)
 
     print(dash("order history"))
     print(backtester.get_history())
