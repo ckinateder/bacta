@@ -11,7 +11,7 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 # Import the classes we need to test
 
-set_log_level("WARNING")
+set_log_level("DEBUG")
 
 
 class TestEventBacktester(EventBacktester):
@@ -496,7 +496,7 @@ class TestEventBacktesterIntegration(unittest.TestCase):
 
     def test_get_win_rate(self):
         """Test getting win rate."""
-        # reset
+        # case 1
         self.backtester.initialize_bank()
         orders = [
             Order("AAPL", Position.LONG, 20.0, 1),
@@ -518,6 +518,36 @@ class TestEventBacktesterIntegration(unittest.TestCase):
             "exit_price": [24.0, 22.0, 22.0],
             "quantity": [1, 2, 1],
             "net_profit": [4, 2, -3.0]
+        })
+
+        diff = pd.concat([exits, exits_should_be]).drop_duplicates(
+            keep=False)
+        self.assertTrue(diff.empty)
+        self.assertEqual(win_rate, 2/3)
+
+        # case 2
+
+        self.backtester.initialize_bank()
+        orders = [
+            Order("AAPL", Position.LONG, 20.0, 1),
+            Order("AAPL", Position.LONG, 21.0, 2),
+            Order("AAPL", Position.LONG, 25.0, 1),
+            Order("AAPL", Position.SHORT, 24.0, 3),
+            Order("AAPL", Position.SHORT, 22.0, 1),
+        ]
+
+        for i in range(len(orders)):
+            self.backtester._place_order(orders[i], pd.Timestamp(
+                2024, 1, 1, 10, 0, tz="America/New_York") + timedelta(hours=i))
+
+        win_rate, exits = self.backtester.get_win_rate(debug=True)
+
+        exits_should_be = pd.DataFrame({
+            "symbol": ["AAPL", "AAPL", "AAPL"],
+            "entry_price": [20.0, 21.0, 25.0],
+            "exit_price": [24.0, 24.0, 22.0],
+            "quantity": [1, 2, 1],
+            "net_profit": [4, 6, -3.0]
         })
 
         diff = pd.concat([exits, exits_should_be]).drop_duplicates(
