@@ -11,7 +11,7 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 # Import the classes we need to test
 
-set_log_level("DEBUG")
+set_log_level("WARNING")
 
 
 class TestEventBacktester(EventBacktester):
@@ -20,7 +20,7 @@ class TestEventBacktester(EventBacktester):
     This implements a simple buy-and-hold strategy.
     """
 
-    def __init__(self, active_symbols: list[str], cash: float = 100):
+    def __init__(self, active_symbols: list[str], cash: float = 1000):
         super().__init__(active_symbols, cash, market_hours_only=False)
         self.initialized = False
 
@@ -554,6 +554,46 @@ class TestEventBacktesterIntegration(unittest.TestCase):
             keep=False)
         self.assertTrue(diff.empty)
         self.assertEqual(win_rate, 2/3)
+        # case 3, multiple symbols
+        self.backtester.initialize_bank(cash=10000)
+        orders = [
+            Order("AAPL", Position.LONG, 20.0, 1),
+            Order("AAPL", Position.LONG, 21.0, 2),
+            Order("AAPL", Position.LONG, 25.0, 1),
+            Order("GOOGL", Position.LONG, 17.0, 1),
+            Order("GOOGL", Position.LONG, 11.0, 2),
+            Order("AAPL", Position.SHORT, 24.0, 3),
+            Order("AAPL", Position.SHORT, 22.0, 1),
+            Order("GOOGL", Position.LONG, 15.0, 1),
+            Order("GOOGL", Position.SHORT, 19.0, 3),
+            Order("GOOGL", Position.SHORT, 16.0, 1),
+        ]
+
+        for i in range(len(orders)):
+            self.backtester._place_order(orders[i], pd.Timestamp(
+                2024, 1, 1, 10, 0, tz="America/New_York") + timedelta(hours=i))
+
+        win_rate, exits = self.backtester.get_win_rate(debug=True)
+
+        exits_should_be = pd.DataFrame([
+            {"symbol": "AAPL", "entry_price": 20.0,
+                "exit_price": 24.0, "quantity": 1, "net_profit": 4.0},
+            {"symbol": "AAPL", "entry_price": 21.0,
+                "exit_price": 24.0, "quantity": 2, "net_profit": 6.0},
+            {"symbol": "AAPL", "entry_price": 25.0,
+                "exit_price": 22.0, "quantity": 1, "net_profit": -3.0},
+            {"symbol": "GOOGL", "entry_price": 17.0,
+                "exit_price": 19.0, "quantity": 1, "net_profit": 2.0},
+            {"symbol": "GOOGL", "entry_price": 11.0,
+                "exit_price": 19.0, "quantity": 2, "net_profit": 16.0},
+            {"symbol": "GOOGL", "entry_price": 15.0,
+                "exit_price": 16.0, "quantity": 1, "net_profit": 1.0}
+        ])
+
+        diff = pd.concat([exits, exits_should_be]).drop_duplicates(
+            keep=False)
+        self.assertTrue(diff.empty)
+        self.assertEqual(win_rate, 5/6)
 
 
 if __name__ == '__main__':

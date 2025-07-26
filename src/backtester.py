@@ -119,7 +119,7 @@ class EventBacktester(ABC):
             market_hours_only (bool, optional): Whether to only place orders during market hours. Defaults to True. 
         """
         logger.debug(
-            f"Initializing backtester with active symbols: {active_symbols}, cash: {cash}")
+            f"Initializing backtester with active symbols: {active_symbols}, cash: {cash}, allow_short: {allow_short}, allow_overdraft: {allow_overdraft}, min_trade_value: {min_trade_value}, market_hours_only: {market_hours_only}")
         self.active_symbols = active_symbols
         self.initialize_bank(cash)
         self.allow_short = allow_short
@@ -260,12 +260,14 @@ class EventBacktester(ABC):
             index (pd.Timestamp): The index of the state.
         """
         # check if overdraft is allowed
+        adjusted = False
         if not self.allow_overdraft and order.position == Position.LONG and self.get_state()["cash"] < order.get_value():
             order.quantity = self.get_state()["cash"] // order.price
-
+            adjusted = True
         # check if shorting is allowed
         if not self.allow_short and order.position == Position.SHORT and self.get_state()[order.symbol] < order.quantity:
             order.quantity = self.get_state()[order.symbol]
+            adjusted = True
 
         # don't place an order if the value is less than the minimum trade value
         if order.get_value() < self.min_trade_value:
@@ -274,7 +276,7 @@ class EventBacktester(ABC):
             return
         else:
             logger.debug(
-                f"Placing adjusted {order.position.name} order for {order.symbol} with quantity {order.quantity} at {order.price:.2f} for ${order.get_value():.2f}.")
+                f"Placing {f'adjusted ' if adjusted else ''}{order.position.name} order for {order.symbol} with quantity {order.quantity} at {order.price:.2f} for ${order.get_value():.2f}.")
 
         if order.position == Position.LONG:
             self._place_buy_order(
@@ -405,100 +407,102 @@ class EventBacktester(ABC):
             index=[])
 
         order_history = self.order_history.copy()
-
-        # remember to do this per symbol
-
-        # pointers
-        entry_pointer = 0
-        exit_pointer = 0
-
-        all_long_positions = order_history[order_history["position"]
-                                           == Position.LONG.value]
-        all_short_positions = order_history[order_history["position"]
-                                            == Position.SHORT.value]
-
-        if debug:
-            logger.debug(
-                f"STARTING\nAll long positions:\n{all_long_positions}\nAll short positions:\n{all_short_positions}\nNet profits:\n{net_profits}\n\n")
         net_pointer = 0
 
-        while exit_pointer < len(all_short_positions) and entry_pointer < len(all_long_positions):
-            # get index and row of pointers
-            entry_index = all_long_positions.index[entry_pointer]
-            entry_row = all_long_positions.iloc[entry_pointer]
-            exit_index = all_short_positions.index[exit_pointer]
-            exit_row = all_short_positions.iloc[exit_pointer]
+        for symbol in self.active_symbols:
+            # pointers
+            entry_pointer = 0
+            exit_pointer = 0
+
+            # get all long and short positions
+            all_long_positions = order_history[(order_history["symbol"] == symbol) & (
+                order_history["position"] == Position.LONG.value)]
+            all_short_positions = order_history[(order_history["symbol"] == symbol) & (
+                order_history["position"] == Position.SHORT.value)]
+
             if debug:
                 logger.debug(
-                    f"Entry pointer: {entry_pointer}, Exit pointer: {exit_pointer}, net pointer: {net_pointer}")
+                    f"STARTING for {symbol}\nAll long positions:\n{all_long_positions}\nAll short positions:\n{all_short_positions}\nNet profits:\n{net_profits}\n\n")
 
-            net_profits.loc[net_pointer, "symbol"] = entry_row["symbol"]
-            net_profits.loc[net_pointer, "entry_price"] = entry_row["price"]
-            net_profits.loc[net_pointer, "exit_price"] = exit_row["price"]
-
-            if exit_row["quantity"] > entry_row["quantity"]:
-                # exit row has more quantity than entry row
-                # add the net profit to the net_profits dataframe
-                # zero out the entry row
-                # DON'T increment the exit pointer
-                # increment the net pointer
-                # increment the entry pointer
+            while exit_pointer < len(all_short_positions) and entry_pointer < len(all_long_positions):
+                # get index and row of pointers
+                entry_index = all_long_positions.index[entry_pointer]
+                entry_row = all_long_positions.iloc[entry_pointer]
+                exit_index = all_short_positions.index[exit_pointer]
+                exit_row = all_short_positions.iloc[exit_pointer]
                 if debug:
                     logger.debug(
-                        "exit row has more quantity than entry row. incrementing entry pointer")
-                swing_quantity = entry_row["quantity"]
-                net_profits.loc[net_pointer, "net_profit"] = (
-                    exit_row["price"] - entry_row["price"]) * swing_quantity
-                net_profits.loc[net_pointer, "quantity"] = swing_quantity
+                        f"Entry pointer: {entry_pointer}, Exit pointer: {exit_pointer}, net pointer: {net_pointer}")
 
-                all_short_positions.loc[exit_index,
-                                        "quantity"] -= swing_quantity
-                all_long_positions.loc[entry_index,
-                                       "quantity"] -= swing_quantity
-                entry_pointer += 1
-            elif exit_row["quantity"] < entry_row["quantity"]:
-                # entry row has more quantity than exit row
-                # add the net profit to the net_profits dataframe
-                # zero out the exit row
-                # DON'T increment the entry pointer
-                # increment the net pointer
-                # increment the exit pointer
+                net_profits.loc[net_pointer, "symbol"] = entry_row["symbol"]
+                net_profits.loc[net_pointer,
+                                "entry_price"] = entry_row["price"]
+                net_profits.loc[net_pointer, "exit_price"] = exit_row["price"]
+
+                if exit_row["quantity"] > entry_row["quantity"]:
+                    # exit row has more quantity than entry row
+                    # add the net profit to the net_profits dataframe
+                    # zero out the entry row
+                    # DON'T increment the exit pointer
+                    # increment the net pointer
+                    # increment the entry pointer
+                    if debug:
+                        logger.debug(
+                            "exit row has more quantity than entry row. incrementing entry pointer")
+                    swing_quantity = entry_row["quantity"]
+                    net_profits.loc[net_pointer, "net_profit"] = (
+                        exit_row["price"] - entry_row["price"]) * swing_quantity
+                    net_profits.loc[net_pointer, "quantity"] = swing_quantity
+
+                    all_short_positions.loc[exit_index,
+                                            "quantity"] -= swing_quantity
+                    all_long_positions.loc[entry_index,
+                                           "quantity"] -= swing_quantity
+                    entry_pointer += 1
+                elif exit_row["quantity"] < entry_row["quantity"]:
+                    # entry row has more quantity than exit row
+                    # add the net profit to the net_profits dataframe
+                    # zero out the exit row
+                    # DON'T increment the entry pointer
+                    # increment the net pointer
+                    # increment the exit pointer
+                    if debug:
+                        logger.debug(
+                            "entry row has more quantity than exit row. incrementing exit pointer")
+                    swing_quantity = exit_row["quantity"]
+                    net_profits.loc[net_pointer, "net_profit"] = (
+                        exit_row["price"] - entry_row["price"]) * swing_quantity
+                    net_profits.loc[net_pointer, "quantity"] = swing_quantity
+                    all_long_positions.loc[entry_index,
+                                           "quantity"] -= swing_quantity
+                    all_short_positions.loc[exit_index,
+                                            "quantity"] -= swing_quantity
+                    exit_pointer += 1
+                else:
+                    # exit row has the same quantity as entry row
+                    # add the net profit to the net_profits dataframe
+                    # zero out the entry and exit rows
+                    # increment the net pointer
+                    # increment the entry and exit pointers
+                    if debug:
+                        logger.debug(
+                            "exit row has the same quantity as entry row. incrementing entry and exit pointers")
+                    swing_quantity = exit_row["quantity"]
+                    net_profits.loc[net_pointer, "net_profit"] = (
+                        exit_row["price"] - entry_row["price"]) * swing_quantity
+                    net_profits.loc[net_pointer, "quantity"] = swing_quantity
+                    all_long_positions.loc[entry_index,
+                                           "quantity"] = 0
+                    all_short_positions.loc[exit_index,
+                                            "quantity"] = 0
+                    entry_pointer += 1
+                    exit_pointer += 1
+
+                net_pointer += 1
                 if debug:
                     logger.debug(
-                        "entry row has more quantity than exit row. incrementing exit pointer")
-                swing_quantity = exit_row["quantity"]
-                net_profits.loc[net_pointer, "net_profit"] = (
-                    exit_row["price"] - entry_row["price"]) * swing_quantity
-                net_profits.loc[net_pointer, "quantity"] = swing_quantity
-                all_long_positions.loc[entry_index,
-                                       "quantity"] -= swing_quantity
-                all_short_positions.loc[exit_index,
-                                        "quantity"] -= swing_quantity
-                exit_pointer += 1
-            else:
-                # exit row has the same quantity as entry row
-                # add the net profit to the net_profits dataframe
-                # zero out the entry and exit rows
-                # increment the net pointer
-                # increment the entry and exit pointers
-                if debug:
-                    logger.debug(
-                        "exit row has the same quantity as entry row. incrementing entry and exit pointers")
-                swing_quantity = exit_row["quantity"]
-                net_profits.loc[net_pointer, "net_profit"] = (
-                    exit_row["price"] - entry_row["price"]) * swing_quantity
-                net_profits.loc[net_pointer, "quantity"] = swing_quantity
-                all_long_positions.loc[entry_index,
-                                       "quantity"] = 0
-                all_short_positions.loc[exit_index,
-                                        "quantity"] = 0
-                entry_pointer += 1
-                exit_pointer += 1
-
+                        f"All long positions:\n{all_long_positions}\nAll short positions:\n{all_short_positions}\nNet profits:\n{net_profits}\n\n")
             net_pointer += 1
-            if debug:
-                logger.debug(
-                    f"All long positions:\n{all_long_positions}\nAll short positions:\n{all_short_positions}\nNet profits:\n{net_profits}\n\n")
 
         # calculate win rate as the number of positive net profits divided by the total number of net profits
         win_rate = len([profit for profit in net_profits["net_profit"]
