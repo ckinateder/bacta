@@ -2,6 +2,8 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
 from enum import Enum
 import logging
+import random
+import pdb
 
 from alpaca.data.timeframe import TimeFrame
 import matplotlib.pyplot as plt
@@ -32,6 +34,9 @@ class Position(Enum):
     NEUTRAL = 0
 
 
+QUANTITY_PRECISION = 4
+
+
 class Order:
     def __init__(self, symbol: str, position: Position, price: float, quantity: float):
         """
@@ -47,7 +52,16 @@ class Order:
         self.position = position
         self.price = price
         self.quantity = quantity
-        self.value = price * quantity  # the value of the order
+
+    def get_value(self) -> float:
+        """Get the value of the order.
+        """
+        return round(self.price * self.quantity, QUANTITY_PRECISION)
+
+    def __str__(self) -> str:
+        """String representation of the order.
+        """
+        return f"{self.position.name} {self.quantity} of {self.symbol} at {self.price}"
 
 
 class EventBacktester(ABC):
@@ -92,19 +106,26 @@ class EventBacktester(ABC):
 
     """
 
-    def __init__(self, active_symbols: list[str], cash: float = 100, **kwargs):
+    def __init__(self, active_symbols: list[str], cash: float = 100, allow_short: bool = True, allow_overdraft: bool = False, min_trade_value: float = 1.0, market_hours_only: bool = True):
         """
         Initialize the backtester.
 
         Args:
             active_symbols (list[str]): The symbols to trade.
             cash (float, optional): The initial cash balance. Defaults to 100.
-            **kwargs: Additional keyword arguments.
+            allow_short (bool, optional): Whether to allow short positions. If False, will not allow the backtester to shortsell. Defaults to True.
+            allow_overdraft (bool, optional): Whether to allow overdraft in the bank. If False, will not allow the backtester to go into negative cash. Defaults to False.
+            min_trade_value (float, optional): The minimum dollar value of a trade. If the order value is less than this, the order will be skipped. Defaults to 1.0.
+            market_hours_only (bool, optional): Whether to only place orders during market hours. Defaults to True. 
         """
         logger.debug(
             f"Initializing backtester with active symbols: {active_symbols}, cash: {cash}")
         self.active_symbols = active_symbols
         self.initialize_bank(cash)
+        self.allow_short = allow_short
+        self.allow_overdraft = allow_overdraft
+        self.min_trade_value = min_trade_value
+        self.market_hours_only = market_hours_only
 
         # may or may not be needed
         self.train_bars = None
@@ -231,14 +252,36 @@ class EventBacktester(ABC):
         self._update_state(symbol, price, quantity, Position.SHORT, index)
         self._update_history(symbol, price, quantity, Position.SHORT, index)
 
-    def _place_order(self, order: Position, index: pd.Timestamp, symbol: str, price: float, quantity: float):
+    def _place_order(self, order: Order, index: pd.Timestamp):
+        """Place an order for a given symbol.
+
+        Args:
+            order (Order): The order to place.
+            index (pd.Timestamp): The index of the state.
         """
-        Place an order for a given symbol.
-        """
-        if order == Position.LONG:
-            self._place_buy_order(symbol, price, quantity, index)
-        elif order == Position.SHORT:
-            self._place_sell_order(symbol, price, quantity, index)
+        # check if overdraft is allowed
+        if not self.allow_overdraft and order.position == Position.LONG and self.get_state()["cash"] < order.get_value():
+            order.quantity = self.get_state()["cash"] // order.price
+
+        # check if shorting is allowed
+        if not self.allow_short and order.position == Position.SHORT and self.get_state()[order.symbol] < order.quantity:
+            order.quantity = self.get_state()[order.symbol]
+
+        # don't place an order if the value is less than the minimum trade value
+        if order.get_value() < self.min_trade_value:
+            logger.debug(
+                f"Skipping {order.position.name} order for {order.symbol} because trade value is less than ${self.min_trade_value:.2f}.")
+            return
+        else:
+            logger.debug(
+                f"Placing adjusted {order.position.name} order for {order.symbol} with quantity {order.quantity} at {order.price:.2f} for ${order.get_value():.2f}.")
+
+        if order.position == Position.LONG:
+            self._place_buy_order(
+                order.symbol, order.price, order.quantity, index)
+        elif order.position == Position.SHORT:
+            self._place_sell_order(
+                order.symbol, order.price, order.quantity, index)
 
     def _close_positions(self, prices: pd.Series, index: pd.Timestamp):
         """
@@ -257,7 +300,7 @@ class EventBacktester(ABC):
                     self._place_buy_order(
                         symbol, prices[symbol], abs(position), index)
 
-    def run(self, test_bars: pd.DataFrame, ignore_market_open: bool = False, close_positions: bool = True, allow_short: bool = True, allow_overdraft: bool = False):
+    def run(self, test_bars: pd.DataFrame, close_positions: bool = True):
         """
         Run a single period of the backtest over the given dataframe.
         Assume that prices have their indicators already calculated and are in the prices dataframe.
@@ -265,10 +308,7 @@ class EventBacktester(ABC):
         Args:
             test_bars: DataFrame with bars of the assets. Multi-index with (symbol, timestamp) index and OHLCV columns.
                 See the class docstring for more details.
-            ignore_market_open (bool, optional): Whether to ignore the market operating hours. Defaults to False.
             close_positions (bool, optional): Whether to close positions at the end of the backtest. Defaults to True.
-            allow_short (bool, optional): Whether to allow short positions. If False, will not allow the backtester to shortsell. Defaults to True.
-            allow_overdraft (bool, optional): Whether to allow overdraft in the bank. If False, will not allow the backtester to go into negative cash. Defaults to False.
         """
         # check if the bars are in the correct format
         assert test_bars.index.nlevels == 2, "Bars must have a multi-index with (symbol, timestamp) index"
@@ -305,30 +345,14 @@ class EventBacktester(ABC):
         for index in tqdm(timestamps[start_loc:], desc="Backtesting", leave=False, dynamic_ncols=True, total=len(timestamps[start_loc:]), position=0):
             # perform update step
             self.update_step(full_bars, index)
-            if ignore_market_open or is_market_open(index):
+            if not self.market_hours_only or is_market_open(index):
                 # make a decision
                 current_bar = full_bars.xs(index, level=1)
                 order = self.generate_order(current_bar, index)
 
                 # place the order if not None
                 if order is not None:
-                    # check if state has enough of the symbol
-                    if not allow_short and order.position == Position.SHORT and self.get_state()[order.symbol] < order.quantity:
-                        order.quantity = self.get_state()[order.symbol]
-                        logger.debug(
-                            f"Not enough of {order.symbol} to sell. Selling {order.quantity} of {order.symbol}.")
-
-                    if not allow_overdraft and order.position == Position.LONG and self.get_state()["cash"] < order.value:
-                        logger.debug(
-                            f"Not enough cash to buy {order.quantity} of {order.symbol} at {order.price}.")
-                        order.quantity = 0
-
-                    if order.quantity == 0:
-                        logger.debug(
-                            f"Skipping {order.position.name} order for {order.symbol} because quantity is 0.")
-                    else:
-                        self._place_order(order.position, index,
-                                          order.symbol, order.price, order.quantity)
+                    self._place_order(order, index)
 
                 # Update portfolio value with current close prices
                 current_close_prices = current_bar.loc[:, "close"]
@@ -359,12 +383,119 @@ class EventBacktester(ABC):
         max_drawdown = cumulative_return.cummax() - cumulative_return
         max_drawdown_percentage = max_drawdown.min()
 
+        # calculate win rate
+        win_rate = self.get_win_rate()
+
         return pd.Series({
+            "trading_period": f"{state_history.index[1]} to {state_history.index[-1]}",
             "return_on_investment": return_on_investment,
             "max_drawdown_percentage": max_drawdown_percentage,
             "start_portfolio_value": start_portfolio_value,
-            "end_portfolio_value": end_portfolio_value
+            "end_portfolio_value": end_portfolio_value,
+            "win_rate": win_rate
         })
+
+    def get_win_rate(self, debug: bool = False) -> float:
+        """
+        Get the win rate of the backtest.
+        """
+        net_profits = pd.DataFrame(
+            columns=["symbol", "entry_price",
+                     "exit_price", "quantity", "net_profit"],
+            index=[])
+
+        order_history = self.order_history.copy()
+
+        # remember to do this per symbol
+
+        # iterate through the order history and add the open positions to the list
+        # if the position is closed, remove the open position from the list and add the profit/loss to the win/loss list
+        # will need to handle multiple open positions being closed in one order
+        # long only for now
+        # this is a two pointer problem. edit entry pointer until the quantity is 0. then increment entry pointer and repeat.
+        # start with entry pointer at 0.
+        # start with exit pointer at first short position.
+        entry_pointer = 0
+        exit_pointer = 0
+
+        all_long_positions = order_history[order_history["position"]
+                                           == Position.LONG.value]
+        all_short_positions = order_history[order_history["position"]
+                                            == Position.SHORT.value]
+
+        # add the net profits to the net_profits dataframe
+        net_pointer = 0
+
+        while exit_pointer < len(all_short_positions) and entry_pointer < len(all_long_positions):
+            # get index and row of exit pointer
+            entry_index = all_long_positions.index[entry_pointer]
+            entry_row = all_long_positions.iloc[entry_pointer]
+
+            exit_index = all_short_positions.index[exit_pointer]
+            exit_row = all_short_positions.iloc[exit_pointer]
+
+            if exit_row["position"] == Position.SHORT.value:
+                quantity_of_sell = exit_row["quantity"]
+                price_of_sell = exit_row["price"]
+
+                net_profits.loc[net_pointer, "symbol"] = entry_row["symbol"]
+                net_profits.loc[net_pointer,
+                                "entry_price"] = entry_row["price"]
+                net_profits.loc[net_pointer, "exit_price"] = price_of_sell
+                net_profits.loc[net_pointer, "quantity"] = quantity_of_sell
+                net_profits.loc[net_pointer, "net_profit"] = np.nan
+
+                if entry_row["quantity"] > quantity_of_sell:
+                    # sell all of the short position
+                    net_profits.loc[net_pointer, "net_profit"] = (
+                        price_of_sell - entry_row["price"]) * quantity_of_sell
+
+                    # update rolling position
+                    all_short_positions.loc[exit_index,
+                                            "quantity"] -= quantity_of_sell
+                    all_long_positions.loc[entry_index,
+                                           "quantity"] -= quantity_of_sell
+
+                    # increment exit pointer
+                    exit_pointer += 1
+
+                elif entry_row["quantity"] <= quantity_of_sell:
+                    # sell part of the short position
+                    net_profits.loc[net_pointer, "net_profit"] = (
+                        price_of_sell - entry_row["price"]) * entry_row["quantity"]
+
+                    # update rolling position
+                    all_short_positions.loc[exit_index,
+                                            "quantity"] -= entry_row["quantity"]
+                    all_long_positions.loc[entry_index,
+                                           "quantity"] -= entry_row["quantity"]
+
+                    # increment entry pointer
+                    entry_pointer += 1
+
+                # increment net pointer
+                net_pointer += 1
+            else:
+                # increment exit pointer
+                exit_pointer += 1
+
+            print(
+                f"Entry pointer: {entry_pointer}, Exit pointer: {exit_pointer}, net pointer: {net_pointer}")
+            print("All long positions:\n", all_long_positions)
+            print("All short positions:\n", all_short_positions)
+            print(f"Net profits:\n{net_profits}\n\n")
+
+        # drop any rows 0 quantity
+        net_profits = net_profits[net_profits["quantity"] != 0]
+
+        # calculate win rate as the number of positive net profits divided by the total number of net profits
+        win_rate = len([profit for profit in net_profits["net_profit"]
+                       if profit > 0]) / len(net_profits)
+        if debug:
+            print(f"final net profits:\n{net_profits}")
+            return win_rate, net_profits
+
+        return win_rate, net_profits
 
     # getters
 
@@ -563,7 +694,7 @@ class EventBacktester(ABC):
                 if symbol in self.test_bars.index.get_level_values(0):
                     ax5.step(self.test_bars.xs(symbol, level=0).index, self.test_bars.xs(symbol, level=0).loc[:, "close"],
                              label=symbol, linewidth=1.5, where='post')
-            ax5.set_title("symbol Prices")
+            ax5.set_title("Symbol Prices")
             ax5.set_ylabel("Price ($)")
             ax5.legend()
             ax5.grid(True, linestyle='--', alpha=0.7)
@@ -856,14 +987,14 @@ class KeltnerChannelBacktester(EventBacktester):
 
         for symbol in self.active_symbols:
             if close_prices[symbol] > self.upper_bands[symbol][index]:
-                return Order(symbol, Position.SHORT, close_prices[symbol], 1)
+                return Order(symbol, Position.SHORT, close_prices[symbol], random.randint(1, 3))
             elif close_prices[symbol] < self.lower_bands[symbol][index]:
-                return Order(symbol, Position.LONG, close_prices[symbol], 1)
+                return Order(symbol, Position.LONG, close_prices[symbol], random.randint(1, 3))
 
 
 if __name__ == "__main__":
     logger.setLevel(logging.DEBUG)
-    symbols = ["DUK", "NEE"]
+    symbols = ["DUK"]  # , "NRG"]
     utility_symbols = [
         "NEE", "EXC", "D", "PCG", "XEL",
         "ED", "WEC", "DTE", "PPL", "AEE",
@@ -875,9 +1006,10 @@ if __name__ == "__main__":
         2024, 1, 1), end_date=datetime.now() - timedelta(minutes=15), timeframe=TimeFrame.Hour)
 
     train_bars, test_bars = split_bars_train_test(bars, split_ratio=0.9)
-    backtester = KeltnerChannelBacktester(symbols, cash=1000)
+    backtester = KeltnerChannelBacktester(
+        symbols, cash=2000, allow_short=False, allow_overdraft=False, min_trade_value=1, market_hours_only=True)
     backtester.load_train_bars(train_bars)
-    backtester.run(test_bars, ignore_market_open=False, allow_short=False)
+    backtester.run(test_bars)
 
     print(dash("order history"))
     print(backtester.get_history())
