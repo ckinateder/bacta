@@ -400,6 +400,24 @@ class EventBacktester(ABC):
     def get_win_rate(self, percentage_threshold: float = 0.0, return_net_profits: bool = False) -> tuple[float, pd.DataFrame]:
         """Get the win rate of the backtest. This is done by calculating the net profit for each open position.
 
+        Example:
+
+        ```
+        self.order_history = pd.DataFrame([
+            {"symbol": "AAPL", "position": Position.LONG.value, "price": 24.0, "quantity": 1},
+            {"symbol": "AAPL", "position": Position.SHORT.value, "price": 22.0, "quantity": 1},
+            {"symbol": "AAPL", "position": Position.LONG.value, "price": 25.0, "quantity": 1},
+            {"symbol": "AAPL", "position": Position.SHORT.value, "price": 24.0, "quantity": 1},
+            {"symbol": "AAPL", "position": Position.SHORT.value, "price": 22.0, "quantity": 3},
+        ])
+
+        self.get_win_rate() -> (0.6666666666666666,
+          symbol  entry_price  exit_price  quantity  net_profit_dollars  net_profit_percentage    win
+        0   AAPL         20.0        24.0       1.0                 4.0               0.200000   True
+        1   AAPL         21.0        22.0       2.0                 2.0               0.047619   True
+        2   AAPL         25.0        22.0       1.0                -3.0              -0.120000   False
+        ```
+
         Args:
             percentage_threshold (float, optional): The threshold for the net profit percentage. Defaults to 0.0. 
                 If the net profit percentage is greater than this threshold, the position is considered a win.
