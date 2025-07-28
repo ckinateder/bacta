@@ -510,19 +510,21 @@ class TestEventBacktesterIntegration(unittest.TestCase):
             self.backtester._place_order(orders[i], pd.Timestamp(
                 2024, 1, 1, 10, 0, tz="America/New_York") + timedelta(hours=i))
 
-        win_rate, exits = self.backtester.get_win_rate(debug=True)
+        win_rate, exits = self.backtester.get_win_rate(
+            percentage_threshold=0.0, return_net_profits=True)
 
         exits_should_be = pd.DataFrame({
             "symbol": ["AAPL", "AAPL", "AAPL"],
             "entry_price": [20.0, 21.0, 25.0],
             "exit_price": [24.0, 22.0, 22.0],
-            "quantity": [1, 2, 1],
-            "net_profit": [4, 2, -3.0]
-        })
+            "quantity": [1.0, 2.0, 1.0],
+            "net_profit_dollars": [4.0, 2.0, -3.0],
+            "net_profit_percentage": [0.2, 0.047619, -0.12],
+            "win": [True, True, False]
+        }).astype({"symbol": "string", "win": "boolean"})
 
-        diff = pd.concat([exits, exits_should_be]).drop_duplicates(
-            keep=False)
-        self.assertTrue(diff.empty)
+        pd.testing.assert_frame_equal(
+            exits, exits_should_be, check_exact=False)
         self.assertEqual(win_rate, 2/3)
 
         # case 2
@@ -540,20 +542,22 @@ class TestEventBacktesterIntegration(unittest.TestCase):
             self.backtester._place_order(orders[i], pd.Timestamp(
                 2024, 1, 1, 10, 0, tz="America/New_York") + timedelta(hours=i))
 
-        win_rate, exits = self.backtester.get_win_rate(debug=True)
+        win_rate, exits = self.backtester.get_win_rate(
+            percentage_threshold=0.0, return_net_profits=True)
 
         exits_should_be = pd.DataFrame({
             "symbol": ["AAPL", "AAPL", "AAPL"],
             "entry_price": [20.0, 21.0, 25.0],
             "exit_price": [24.0, 24.0, 22.0],
-            "quantity": [1, 2, 1],
-            "net_profit": [4, 6, -3.0]
-        })
-
-        diff = pd.concat([exits, exits_should_be]).drop_duplicates(
-            keep=False)
-        self.assertTrue(diff.empty)
+            "quantity": [1.0, 2.0, 1.0],
+            "net_profit_dollars": [4.0, 6.0, -3.0],
+            "net_profit_percentage": [0.2, 0.142857, -0.12],
+            "win": [True, True, False]
+        }).astype({"symbol": "string", "win": "boolean"})
+        pd.testing.assert_frame_equal(
+            exits, exits_should_be, check_exact=False)
         self.assertEqual(win_rate, 2/3)
+
         # case 3, multiple symbols
         self.backtester.initialize_bank(cash=10000)
         orders = [
@@ -573,26 +577,26 @@ class TestEventBacktesterIntegration(unittest.TestCase):
             self.backtester._place_order(orders[i], pd.Timestamp(
                 2024, 1, 1, 10, 0, tz="America/New_York") + timedelta(hours=i))
 
-        win_rate, exits = self.backtester.get_win_rate(debug=True)
+        win_rate, exits = self.backtester.get_win_rate(
+            percentage_threshold=0.0, return_net_profits=True)
 
         exits_should_be = pd.DataFrame([
             {"symbol": "AAPL", "entry_price": 20.0,
-                "exit_price": 24.0, "quantity": 1, "net_profit": 4.0},
+                "exit_price": 24.0, "quantity": 1, "net_profit_dollars": 4.0, "net_profit_percentage": 0.2, "win": True},
             {"symbol": "AAPL", "entry_price": 21.0,
-                "exit_price": 24.0, "quantity": 2, "net_profit": 6.0},
+                "exit_price": 24.0, "quantity": 2, "net_profit_dollars": 6.0, "net_profit_percentage": 0.1428571, "win": True},
             {"symbol": "AAPL", "entry_price": 25.0,
-                "exit_price": 22.0, "quantity": 1, "net_profit": -3.0},
+                "exit_price": 22.0, "quantity": 1, "net_profit_dollars": -3.0, "net_profit_percentage": -0.12, "win": False},
             {"symbol": "GOOGL", "entry_price": 17.0,
-                "exit_price": 19.0, "quantity": 1, "net_profit": 2.0},
+                "exit_price": 19.0, "quantity": 1, "net_profit_dollars": 2.0, "net_profit_percentage": 0.11764705882352941, "win": True},
             {"symbol": "GOOGL", "entry_price": 11.0,
-                "exit_price": 19.0, "quantity": 2, "net_profit": 16.0},
+                "exit_price": 19.0, "quantity": 2, "net_profit_dollars": 16.0, "net_profit_percentage": 0.7272727, "win": True},
             {"symbol": "GOOGL", "entry_price": 15.0,
-                "exit_price": 16.0, "quantity": 1, "net_profit": 1.0}
-        ])
+                "exit_price": 16.0, "quantity": 1, "net_profit_dollars": 1.0, "net_profit_percentage": 0.06666666666666667, "win": True}
+        ]).astype({"symbol": "string", "win": "boolean", "quantity": "float64"})
 
-        diff = pd.concat([exits, exits_should_be]).drop_duplicates(
-            keep=False)
-        self.assertTrue(diff.empty)
+        pd.testing.assert_frame_equal(
+            exits, exits_should_be, check_exact=False)
         self.assertEqual(win_rate, 5/6)
 
 

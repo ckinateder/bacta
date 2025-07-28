@@ -397,14 +397,31 @@ class EventBacktester(ABC):
             "win_rate": win_rate
         })
 
-    def get_win_rate(self, debug: bool = False) -> float:
-        """
-        Get the win rate of the backtest.
+    def get_win_rate(self, percentage_threshold: float = 0.0, return_net_profits: bool = False) -> tuple[float, pd.DataFrame]:
+        """Get the win rate of the backtest. This is done by calculating the net profit for each open position.
+
+        Args:
+            percentage_threshold (float, optional): The threshold for the net profit percentage. Defaults to 0.0. 
+                If the net profit percentage is greater than this threshold, the position is considered a win.
+                If the net profit percentage is less than this threshold, the position is considered a loss.
+            return_net_profits (bool, optional): Whether to return the net profits. Defaults to False.
+
+        Returns:
+            tuple[float, pd.DataFrame]: win rate and net profits if return_net_profits is True, otherwise just the win rate
         """
         net_profits = pd.DataFrame(
             columns=["symbol", "entry_price",
-                     "exit_price", "quantity", "net_profit"],
+                     "exit_price", "quantity", "net_profit_dollars", "net_profit_percentage", "win"],
             index=[])
+        net_profits = net_profits.astype({
+            "symbol": "string",
+            "entry_price": "float64",
+            "exit_price": "float64",
+            "quantity": "float64",
+            "net_profit_dollars": "float64",
+            "net_profit_percentage": "float64",
+            "win": "boolean"
+        })
 
         order_history = self.order_history.copy()
         net_pointer = 0
@@ -420,19 +437,12 @@ class EventBacktester(ABC):
             all_short_positions = order_history[(order_history["symbol"] == symbol) & (
                 order_history["position"] == Position.SHORT.value)]
 
-            if debug:
-                logger.debug(
-                    f"STARTING for {symbol}\nAll long positions:\n{all_long_positions}\nAll short positions:\n{all_short_positions}\nNet profits:\n{net_profits}\n\n")
-
             while exit_pointer < len(all_short_positions) and entry_pointer < len(all_long_positions):
                 # get index and row of pointers
                 entry_index = all_long_positions.index[entry_pointer]
                 entry_row = all_long_positions.iloc[entry_pointer]
                 exit_index = all_short_positions.index[exit_pointer]
                 exit_row = all_short_positions.iloc[exit_pointer]
-                if debug:
-                    logger.debug(
-                        f"Entry pointer: {entry_pointer}, Exit pointer: {exit_pointer}, net pointer: {net_pointer}")
 
                 net_profits.loc[net_pointer, "symbol"] = entry_row["symbol"]
                 net_profits.loc[net_pointer,
@@ -446,13 +456,15 @@ class EventBacktester(ABC):
                     # DON'T increment the exit pointer
                     # increment the net pointer
                     # increment the entry pointer
-                    if debug:
-                        logger.debug(
-                            "exit row has more quantity than entry row. incrementing entry pointer")
                     swing_quantity = entry_row["quantity"]
-                    net_profits.loc[net_pointer, "net_profit"] = (
+                    net_profits.loc[net_pointer, "net_profit_dollars"] = (
                         exit_row["price"] - entry_row["price"]) * swing_quantity
+                    net_profits.loc[net_pointer, "net_profit_percentage"] = (
+                        exit_row["price"] - entry_row["price"]) / entry_row["price"]
                     net_profits.loc[net_pointer, "quantity"] = swing_quantity
+
+                    net_profits.loc[net_pointer, "win"] = net_profits.loc[net_pointer,
+                                                                          "net_profit_percentage"] > percentage_threshold
 
                     all_short_positions.loc[exit_index,
                                             "quantity"] -= swing_quantity
@@ -466,13 +478,15 @@ class EventBacktester(ABC):
                     # DON'T increment the entry pointer
                     # increment the net pointer
                     # increment the exit pointer
-                    if debug:
-                        logger.debug(
-                            "entry row has more quantity than exit row. incrementing exit pointer")
                     swing_quantity = exit_row["quantity"]
-                    net_profits.loc[net_pointer, "net_profit"] = (
+                    net_profits.loc[net_pointer, "net_profit_dollars"] = (
                         exit_row["price"] - entry_row["price"]) * swing_quantity
+                    net_profits.loc[net_pointer, "net_profit_percentage"] = (
+                        exit_row["price"] - entry_row["price"]) / entry_row["price"]
                     net_profits.loc[net_pointer, "quantity"] = swing_quantity
+                    net_profits.loc[net_pointer, "win"] = net_profits.loc[net_pointer,
+                                                                          "net_profit_percentage"] > percentage_threshold
+
                     all_long_positions.loc[entry_index,
                                            "quantity"] -= swing_quantity
                     all_short_positions.loc[exit_index,
@@ -484,13 +498,15 @@ class EventBacktester(ABC):
                     # zero out the entry and exit rows
                     # increment the net pointer
                     # increment the entry and exit pointers
-                    if debug:
-                        logger.debug(
-                            "exit row has the same quantity as entry row. incrementing entry and exit pointers")
                     swing_quantity = exit_row["quantity"]
-                    net_profits.loc[net_pointer, "net_profit"] = (
+                    net_profits.loc[net_pointer, "net_profit_dollars"] = (
                         exit_row["price"] - entry_row["price"]) * swing_quantity
+                    net_profits.loc[net_pointer, "net_profit_percentage"] = (
+                        exit_row["price"] - entry_row["price"]) / entry_row["price"]
                     net_profits.loc[net_pointer, "quantity"] = swing_quantity
+                    net_profits.loc[net_pointer, "win"] = net_profits.loc[net_pointer,
+                                                                          "net_profit_percentage"] > percentage_threshold
+
                     all_long_positions.loc[entry_index,
                                            "quantity"] = 0
                     all_short_positions.loc[exit_index,
@@ -499,19 +515,21 @@ class EventBacktester(ABC):
                     exit_pointer += 1
 
                 net_pointer += 1
-                if debug:
-                    logger.debug(
-                        f"All long positions:\n{all_long_positions}\nAll short positions:\n{all_short_positions}\nNet profits:\n{net_profits}\n\n")
             net_pointer += 1
 
-        # calculate win rate as the number of positive net profits divided by the total number of net profits
-        win_rate = len([profit for profit in net_profits["net_profit"]
-                       if profit > 0]) / len(net_profits)
-        if debug:
-            logger.debug(f"final net profits:\n{net_profits}")
-            return win_rate, net_profits
+        # reset index
+        net_profits = net_profits.reset_index(drop=True)
 
-        return win_rate, net_profits
+        # calculate win rate as the number of positive net profits divided by the total number of net profits
+        win_rate = len([profit for profit in net_profits["win"]
+                       if profit]) / len(net_profits)
+
+        # convert d
+
+        if return_net_profits:
+            return win_rate, net_profits
+        else:
+            return win_rate
 
     # getters
 
