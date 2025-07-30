@@ -599,6 +599,33 @@ class TestEventBacktesterIntegration(unittest.TestCase):
             exits, exits_should_be, check_exact=False)
         self.assertEqual(win_rate, 5/6)
 
+        # test unclosed positions
+        self.backtester.initialize_bank(cash=10000)
+        orders = [
+            Order("AAPL", Position.LONG, 20.0, 1),
+            Order("AAPL", Position.LONG, 21.0, 2),
+            Order("AAPL", Position.LONG, 25.0, 1),
+            Order("AAPL", Position.SHORT, 24.0, 3),
+        ]
+
+        for i in range(len(orders)):
+            self.backtester._place_order(orders[i], pd.Timestamp(
+                2024, 1, 1, 10, 0, tz="America/New_York") + timedelta(hours=i))
+
+        win_rate, exits = self.backtester.get_win_rate(
+            percentage_threshold=0.0, return_net_profits=True)
+
+        exits_should_be = pd.DataFrame([
+            {"symbol": "AAPL", "entry_price": 20.0,
+                "exit_price": 24.0, "quantity": 1, "net_profit_dollars": 4.0, "net_profit_percentage": 0.2, "win": True},
+            {"symbol": "AAPL", "entry_price": 21.0,
+                "exit_price": 24.0, "quantity": 2, "net_profit_dollars": 6.0, "net_profit_percentage": 0.1428571, "win": True},
+        ]).astype({"symbol": "string", "win": "boolean", "quantity": "float64"})
+
+        pd.testing.assert_frame_equal(
+            exits, exits_should_be, check_exact=False)
+        self.assertEqual(win_rate, 1)
+
 
 if __name__ == '__main__':
     # Run the tests
