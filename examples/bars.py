@@ -4,19 +4,13 @@ import pandas as pd
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
-import pytz
-import warnings
-from dotenv import load_dotenv
 
 # path wrangling
-from src.utilities import load_dataframe, save_dataframe, getenv, get_logger
-from src.utilities.market import eastern
+from __init__ import *
+from src.utilities import load_dataframe, save_dataframe, getenv, get_logger, eastern
 
 # Create a logger for the bars module
-logger = get_logger("utilities.bars")
-
-
-load_dotenv()
+logger = get_logger("examples.bars")
 
 
 def download_bars(symbols: list[str], start_date: datetime, end_date: datetime,
@@ -284,3 +278,9 @@ class BarUtils:
         part2 = part2.resample(time_frame).asfreq().fillna(0)
         bars = pd.concat([part1, part2], axis=1)
         return bars
+
+
+if __name__ == "__main__":
+    bars = download_bars(["AAPL"], datetime(2025, 7, 1),
+                         datetime(2025, 7, 31), TimeFrame.Hour)
+    print(bars)

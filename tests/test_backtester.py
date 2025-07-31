@@ -5,12 +5,11 @@ import numpy as np
 from datetime import timedelta
 from abc import ABC
 import logging
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from src.__init__ import *
 # Import the classes we need to test
 
-logging.basicConfig(level=logging.WARNING)
+# Set the log level to WARNING for all loggers in this test (except the root logger)
+logging.getLogger("arbys_beef").setLevel(logging.WARNING)
 
 
 class TestEventBacktester(EventBacktester):
@@ -286,7 +285,7 @@ class TestEventBacktesterUnit(unittest.TestCase):
         self.backtester.load_train_bars(self.train_bars)
 
         # Run backtest
-        state_history = self.backtester.run(self.test_bars)
+        state_history = self.backtester.run(self.test_bars, disable_tqdm=True)
 
         # Check that state history is returned
         self.assertIsInstance(state_history, pd.DataFrame)
@@ -298,7 +297,7 @@ class TestEventBacktesterUnit(unittest.TestCase):
     def test_run_backtest_without_train(self):
         """Test running backtest without training data."""
         # Run backtest without loading train bars
-        state_history = self.backtester.run(self.test_bars)
+        state_history = self.backtester.run(self.test_bars, disable_tqdm=True)
 
         # Check that state history is returned
         self.assertIsInstance(state_history, pd.DataFrame)
@@ -308,7 +307,7 @@ class TestEventBacktesterUnit(unittest.TestCase):
         """Test performance analysis."""
         # Run a backtest first
         self.backtester.load_train_bars(self.train_bars)
-        self.backtester.run(self.test_bars)
+        self.backtester.run(self.test_bars, disable_tqdm=True)
 
         # Analyze performance
         try:
@@ -386,7 +385,8 @@ class TestEventBacktesterUnit(unittest.TestCase):
 
         # Run backtest
         advanced_backtester.load_train_bars(self.train_bars)
-        state_history = advanced_backtester.run(self.test_bars)
+        state_history = advanced_backtester.run(
+            self.test_bars, disable_tqdm=True)
 
         # Check that we have some state history
         self.assertGreater(len(state_history), 0)
@@ -457,7 +457,7 @@ class TestEventBacktesterIntegration(unittest.TestCase):
         self.backtester.load_train_bars(self.train_bars)
 
         # Run backtest
-        state_history = self.backtester.run(self.test_bars)
+        state_history = self.backtester.run(self.test_bars, disable_tqdm=True)
 
         # Verify results
         self.assertIsInstance(state_history, pd.DataFrame)
@@ -474,7 +474,7 @@ class TestEventBacktesterIntegration(unittest.TestCase):
 
         # Run backtest with position closing
         state_history = self.backtester.run(
-            self.test_bars, close_positions=True)
+            self.test_bars, close_positions=True, disable_tqdm=True)
 
         # Check that positions were closed at the end
         final_state = self.backtester.get_state()
@@ -488,7 +488,7 @@ class TestEventBacktesterIntegration(unittest.TestCase):
 
         # Run backtest without position closing
         state_history = self.backtester.run(
-            self.test_bars, close_positions=False)
+            self.test_bars, close_positions=False, disable_tqdm=True)
 
         # Check that we have some state history (orders may or may not be generated)
         self.assertGreater(len(state_history), 0)

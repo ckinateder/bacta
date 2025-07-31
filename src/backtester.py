@@ -1,23 +1,14 @@
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta
 from enum import Enum
-import logging
-import random
-import pdb
 
-from alpaca.data.timeframe import TimeFrame
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from talib import ATR, EMA, RSI
-from tqdm import tqdm, trange
+from tqdm import tqdm
 
 from __init__ import *
-from utilities import get_logger, dash
-from utilities.bars import download_bars, separate_bars_by_symbol, split_multi_index_bars_train_test
-from utilities.market import is_market_open
+from utilities import get_logger, is_market_open
 from utilities.plotting import DEFAULT_FIGSIZE, plt_show
-
 
 # Get logger for this module
 logger = get_logger("backtester")
@@ -297,7 +288,7 @@ class EventBacktester(ABC):
                     self._place_buy_order(
                         symbol, prices[symbol], abs(position), index)
 
-    def run(self, test_bars: pd.DataFrame, close_positions: bool = True):
+    def run(self, test_bars: pd.DataFrame, close_positions: bool = True, disable_tqdm: bool = False):
         """
         Run a single period of the backtest over the given dataframe.
         Assume that prices have their indicators already calculated and are in the prices dataframe.
@@ -306,6 +297,7 @@ class EventBacktester(ABC):
             test_bars: DataFrame with bars of the assets. Multi-index with (symbol, timestamp) index and OHLCV columns.
                 See the class docstring for more details.
             close_positions (bool, optional): Whether to close positions at the end of the backtest. Defaults to True.
+            disable_tqdm (bool, optional): Whether to disable the tqdm progress bar. Defaults to False.
         """
         # check if the bars are in the correct format
         assert test_bars.index.nlevels == 2, "Bars must have a multi-index with (symbol, timestamp) index"
@@ -339,7 +331,7 @@ class EventBacktester(ABC):
             f"Running backtest over {len(full_bars.index[start_loc:])} bars from {timestamps[start_loc]} to {timestamps[-1]}...")
 
         # iterate through the index of the bars
-        for index in tqdm(timestamps[start_loc:], desc="Backtesting", leave=False, dynamic_ncols=True, total=len(timestamps[start_loc:]), position=0):
+        for index in tqdm(timestamps[start_loc:], desc="Backtesting", leave=False, dynamic_ncols=True, total=len(timestamps[start_loc:]), position=0, disable=disable_tqdm):
             # perform update step
             self.update_step(full_bars, index)
             if not self.market_hours_only or is_market_open(index):
@@ -968,8 +960,8 @@ class WalkForwardBacktester(EventBacktester, ABC):
     Walk forward backtester that runs the backtest for a given number of periods.
     """
 
-    def __init__(self, active_symbols: list[str], cash: float = 100):
-        super().__init__(active_symbols, cash)
+    def __init__(self, active_symbols: list[str], cash: float = 100, **kwargs):
+        super().__init__(active_symbols, cash, **kwargs)
 
     def run_walk_forward(self, prices: pd.DataFrame, walk_forward_periods: int = 8, split_ratio: float = 0.8):
         """
@@ -990,88 +982,3 @@ class WalkForwardBacktester(EventBacktester, ABC):
 
         # we want the strategy to train on
         raise NotImplementedError()
-
-
-class KeltnerChannelBacktester(EventBacktester):
-    """
-    Backtester that uses the Keltner Channel to make decisions.
-    """
-
-    def __init__(self, active_symbols, cash, **kwargs):
-        super().__init__(active_symbols, cash, **kwargs)
-        self.keltner_channel_period = 21
-
-    def precompute_step(self, bars: pd.DataFrame):
-        """
-        Preload the indicators for the backtest.
-        """
-
-        split_bars = separate_bars_by_symbol(bars)
-        self.middle_bands = {symbol: EMA(
-            split_bars[symbol].loc[:, "close"], timeperiod=self.keltner_channel_period) for symbol in self.active_symbols}
-        self.upper_bands = {symbol: self.middle_bands[symbol] + 2 * ATR(split_bars[symbol].loc[:, "high"], split_bars[symbol].loc[:, "low"],
-                                                                        split_bars[symbol].loc[:, "close"], timeperiod=self.keltner_channel_period) for symbol in self.active_symbols}
-        self.lower_bands = {symbol: self.middle_bands[symbol] - 2 * ATR(split_bars[symbol].loc[:, "high"], split_bars[symbol].loc[:, "low"],
-                                                                        split_bars[symbol].loc[:, "close"], timeperiod=self.keltner_channel_period) for symbol in self.active_symbols}
-
-    def update_step(self, bars: pd.DataFrame, index: pd.Timestamp):
-        """
-        Update the state of the backtester.
-        """
-        split_bars = separate_bars_by_symbol(bars)
-        self.middle_bands = {symbol: EMA(
-            split_bars[symbol].loc[:, "close"], timeperiod=self.keltner_channel_period) for symbol in self.active_symbols}
-        self.upper_bands = {symbol: self.middle_bands[symbol] + 2 * ATR(split_bars[symbol].loc[:, "high"], split_bars[symbol].loc[:, "low"],
-                                                                        split_bars[symbol].loc[:, "close"], timeperiod=self.keltner_channel_period) for symbol in self.active_symbols}
-        self.lower_bands = {symbol: self.middle_bands[symbol] - 2 * ATR(split_bars[symbol].loc[:, "high"], split_bars[symbol].loc[:, "low"],
-                                                                        split_bars[symbol].loc[:, "close"], timeperiod=self.keltner_channel_period) for symbol in self.active_symbols}
-
-    def generate_order(self, bar: pd.DataFrame, index: pd.Timestamp) -> Order:
-        """
-        Make a decision based on the prices.
-        """
-        close_prices = bar.loc[:, "close"]
-
-        for symbol in self.active_symbols:
-            if close_prices[symbol] > self.upper_bands[symbol][index]:
-                return Order(symbol, Position.SHORT, close_prices[symbol], random.randint(1, 3))
-            elif close_prices[symbol] < self.lower_bands[symbol][index]:
-                return Order(symbol, Position.LONG, close_prices[symbol], random.randint(1, 3))
-
-
-if __name__ == "__main__":
-    logger.setLevel(logging.DEBUG)
-    symbols = ["DUK"]  # , "NRG"]
-    utility_symbols = [
-        "NEE", "EXC", "D", "PCG", "XEL",
-        "ED", "WEC", "DTE", "PPL", "AEE",
-        "CNP", "FE", "CMS", "EIX", "ETR",
-        "EVRG", "LNT", "PNW", "IDA", "AEP",
-        "DUK", "SRE", "ATO", "NRG",
-    ]
-    bars = download_bars(symbols, start_date=datetime(
-        2024, 1, 1), end_date=datetime.now() - timedelta(minutes=15), timeframe=TimeFrame.Hour)
-
-    train_bars, test_bars = split_multi_index_bars_train_test(
-        bars, split_ratio=0.9)
-    backtester = KeltnerChannelBacktester(
-        symbols, cash=2000, allow_short=False, allow_overdraft=False, min_trade_value=1, market_hours_only=True)
-    backtester.load_train_bars(train_bars)
-    backtester.run(test_bars)
-
-    print(dash("order history"))
-    print(backtester.get_history())
-    print(dash("state history"))
-    print(backtester.get_state_history())
-
-    print(dash("performance"))
-    print(backtester.analyze_performance())
-
-    # Plot the equity curve
-    print(dash("plotting..."))
-    backtester.plot_equity_curve(
-        title="KC Strategy Equity Curve "+"_".join(symbols))
-    backtester.plot_performance_analysis(
-        title="KC Strategy Performance Analysis "+"_".join(symbols))
-    backtester.plot_trade_history(
-        title="KC Strategy Trade History "+"_".join(symbols))

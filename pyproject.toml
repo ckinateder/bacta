@@ -1,0 +1,23 @@
+[project]
+name = "bacta"
+version = "0.0.1"
+authors = [
+  { name="Calvin J. Kinateder", email="calvinkinateder@gmail.com" },
+]
+description = "A Python library for backtesting trading strategies."
+readme = "README.md"
+requires-python = ">=3.13.3"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+license = "MIT"
+license-files = ["LICEN[CS]E*"]
+
+[project.urls]
+Homepage = "https://github.com/ckinateder/bacta"
+Issues = "https://github.com/ckinateder/bacta/issues"
+
+[build-system]
+requires = ["setuptools >= 77.0.3"]
+build-backend = "setuptools.build_meta"
