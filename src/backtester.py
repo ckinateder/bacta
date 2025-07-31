@@ -355,6 +355,24 @@ class EventBacktester(ABC):
         # return the state history
         return self.get_state_history()
 
+    def get_buy_and_hold_returns(self) -> pd.Series:
+        """Assuming an equal weight allocation to all symbols, calculate the buy and hold returns.
+        This is done by calculating the returns of each symbol and then taking the mean of the returns.
+
+        Returns:
+            pd.Series: The buy and hold returns.
+        """
+        all_cum_returns = {}
+        for symbol in self.active_symbols:
+            if symbol in self.test_bars.index.get_level_values(0):
+                symbol_bars = self.test_bars.xs(
+                    symbol, level=0)
+                symbol_returns = symbol_bars.loc[:,
+                                                 "close"].pct_change().dropna()
+                all_cum_returns[symbol] = (1 + symbol_returns).cumprod()
+
+        return pd.DataFrame(all_cum_returns)
+
     def analyze_performance(self) -> pd.Series:
         """
         Analyze the performance of the backtest.
@@ -375,13 +393,18 @@ class EventBacktester(ABC):
         # calculate win rate
         win_rate = self.get_win_rate()
 
+        # compare to buy and hold (prices)
+        all_cum_returns = self.get_buy_and_hold_returns()
+        combined_returns = all_cum_returns.mean(axis=1)
+
         return pd.Series({
             "trading_period": f"{state_history.index[1]} to {state_history.index[-1]}",
             "return_on_investment": return_on_investment,
             "max_drawdown_percentage": max_drawdown_percentage,
             "start_portfolio_value": start_portfolio_value,
             "end_portfolio_value": end_portfolio_value,
-            "win_rate": win_rate
+            "win_rate": win_rate,
+            "buy_and_hold_return": combined_returns.iloc[-1]
         })
 
     def get_win_rate(self, percentage_threshold: float = 0.0, return_net_profits: bool = False) -> tuple[float, pd.DataFrame]:
@@ -744,22 +767,14 @@ class EventBacktester(ABC):
 
         # Subplot 6: Buy and Hold Returns
         if hasattr(self, 'test_bars') and self.test_bars is not None:
-            all_cum_returns = []
-            for symbol in self.active_symbols:
-                if symbol in self.test_bars.index.get_level_values(0):
-                    symbol_bars = self.test_bars.xs(
-                        symbol, level=0)
-                    symbol_returns = symbol_bars.loc[:,
-                                                     "close"].pct_change().dropna()
-                    symbol_cum_returns = (1 + symbol_returns).cumprod()
-                    ax6.step(symbol_cum_returns.index, symbol_cum_returns,
-                             label=f'{symbol} B&H', linewidth=1.5, alpha=0.7, where='post')
-                    all_cum_returns.append(symbol_cum_returns)
+            all_cum_returns = self.get_buy_and_hold_returns()
+            for symbol in all_cum_returns.columns:
+                ax6.step(all_cum_returns.index, all_cum_returns[symbol],
+                         label=f'{symbol} B&H', linewidth=1.5, alpha=0.7, where='post')
 
-                    # Calculate combined returns (equal-weighted portfolio)
-            if all_cum_returns:
-                combined_returns = pd.concat(
-                    all_cum_returns, axis=1).mean(axis=1)
+            # Calculate combined returns (equal-weighted portfolio)
+            if not all_cum_returns.empty:
+                combined_returns = all_cum_returns.mean(axis=1)
                 ax6.step(combined_returns.index, combined_returns,
                          label='Combined B&H', linewidth=2, color='black', linestyle='-', where='post')
 

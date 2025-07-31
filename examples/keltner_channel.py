@@ -69,7 +69,7 @@ class KeltnerChannelBacktester(EventBacktester):
 
 if __name__ == "__main__":
     logger.setLevel(logging.DEBUG)
-    symbols = ["DUK", "AAPL"]
+    symbols = ["DUK", "DTE"]
     utility_symbols = [
         "NEE", "EXC", "D", "PCG", "XEL",
         "ED", "WEC", "DTE", "PPL", "AEE",
@@ -77,25 +77,35 @@ if __name__ == "__main__":
         "EVRG", "LNT", "PNW", "IDA", "AEP",
         "DUK", "SRE", "ATO", "NRG",
     ]
+    # download the bars
     bars = download_bars(symbols, start_date=datetime(
         2024, 1, 1), end_date=datetime.now() - timedelta(minutes=15), timeframe=TimeFrame.Hour)
 
+    # split the bars into train and test
     train_bars, test_bars = split_multi_index_bars_train_test(
         bars, split_ratio=0.9)
+
+    # create the backtester
     backtester = KeltnerChannelBacktester(
         symbols, cash=2000, allow_short=False, allow_overdraft=False, min_trade_value=1, market_hours_only=True)
+
+    # preload the train bars
     backtester.load_train_bars(train_bars)
+
+    # run the backtest
     backtester.run(test_bars)
 
+    # plot the order and state history
     print(dash("order history"))
     print(backtester.get_history())
     print(dash("state history"))
     print(backtester.get_state_history())
 
+    # plot the performance
     print(dash("performance"))
     print(backtester.analyze_performance())
 
-    # Plot the equity curve
+    # Plot the results
     print(dash("plotting..."))
     backtester.plot_equity_curve(
         title="KC Strategy Equity Curve "+"_".join(symbols))
