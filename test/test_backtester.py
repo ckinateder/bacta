@@ -1,17 +1,16 @@
 from src.backtester import EventBacktester, Position, Order
-from src import set_log_level
 import unittest
 import pandas as pd
 import numpy as np
 from datetime import timedelta
 from abc import ABC
-
+import logging
 import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 # Import the classes we need to test
 
-set_log_level("WARNING")
+logging.basicConfig(level=logging.WARNING)
 
 
 class TestEventBacktester(EventBacktester):

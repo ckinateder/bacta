@@ -11,9 +11,10 @@ import pandas as pd
 import seaborn as sns
 from statsmodels.tsa.stattools import adfuller
 
-from __init__ import get_logger, set_log_level
+from __init__ import *
+from utilities import get_logger
 from backtester import Position
-from utilities import load_dataframe, load_json, save_dataframe, save_json, getenv
+from utilities import getenv
 from utilities.bars import BarUtils, download_close_prices
 from utilities.market import get_earnings_date, eastern
 from utilities.plotting import plot_price_data, plt_show, DEFAULT_FIGSIZE
@@ -151,11 +152,11 @@ if __name__ == "__main__":
     )
 
     refresh_bars = False
-    if refresh_bars:
-        # earnings_dates = {
-        #    symbol: get_earnings_date(symbol) for symbol in utility_symbols
-        # }
-        # save_json(earnings_dates, "utility_earnings_dates")
+    # if refresh_bars:
+    # earnings_dates = {
+    #    symbol: get_earnings_date(symbol) for symbol in utility_symbols
+    # }
+    # save_json(earnings_dates, "utility_earnings_dates")
 
     close_prices = download_close_prices(
         utility_symbols, start_date, end_date, timeframe)

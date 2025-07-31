@@ -4,15 +4,10 @@ import json
 from dotenv import load_dotenv
 from datetime import datetime, date
 import sys
+from .logger import get_logger
 
 sys.path.append(os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__)))))
-
-# Import the logger
-try:
-    from src import get_logger
-except ImportError:
-    from .. import get_logger
 
 # Create a logger for the utilities module
 logger = get_logger("utilities")

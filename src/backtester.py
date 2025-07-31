@@ -12,16 +12,11 @@ import pandas as pd
 from talib import ATR, EMA, RSI
 from tqdm import tqdm, trange
 
-# path wrangling
-try:
-    from src import get_logger, set_log_level
-except ImportError:
-    from __init__ import get_logger, set_log_level
-
-from src.utilities import dash, load_dataframe
-from src.utilities.bars import download_bars, download_close_prices, separate_bars_by_symbol, split_bars_train_test
-from src.utilities.market import is_market_open
-from src.utilities.plotting import DEFAULT_FIGSIZE, plt_show
+from __init__ import *
+from utilities import get_logger, dash
+from utilities.bars import download_bars, separate_bars_by_symbol, split_multi_index_bars_train_test
+from utilities.market import is_market_open
+from utilities.plotting import DEFAULT_FIGSIZE, plt_show
 
 
 # Get logger for this module
@@ -1057,7 +1052,8 @@ if __name__ == "__main__":
     bars = download_bars(symbols, start_date=datetime(
         2024, 1, 1), end_date=datetime.now() - timedelta(minutes=15), timeframe=TimeFrame.Hour)
 
-    train_bars, test_bars = split_bars_train_test(bars, split_ratio=0.9)
+    train_bars, test_bars = split_multi_index_bars_train_test(
+        bars, split_ratio=0.9)
     backtester = KeltnerChannelBacktester(
         symbols, cash=2000, allow_short=False, allow_overdraft=False, min_trade_value=1, market_hours_only=True)
     backtester.load_train_bars(train_bars)

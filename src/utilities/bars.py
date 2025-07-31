@@ -9,14 +9,7 @@ import warnings
 from dotenv import load_dotenv
 
 # path wrangling
-try:
-    from src.utilities import *
-    from src import get_logger
-except ImportError:
-    from __init__ import *
-    from .. import get_logger
-
-from src.utilities import load_dataframe, save_dataframe, getenv
+from src.utilities import load_dataframe, save_dataframe, getenv, get_logger
 from src.utilities.market import eastern
 
 # Create a logger for the bars module
@@ -134,7 +127,7 @@ def separate_bars_by_symbol(bars: pd.DataFrame) -> dict[str, pd.DataFrame]:
     return {symbol: bars.xs(symbol, level=0) for symbol in symbols}
 
 
-def split_bars_train_test(bars: pd.DataFrame, split_ratio: float = 0.8) -> tuple[pd.DataFrame, pd.DataFrame]:
+def split_multi_index_bars_train_test(bars: pd.DataFrame, split_ratio: float = 0.8) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Split the bars into train and test sets.
 
     Args:

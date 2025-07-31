@@ -156,7 +156,7 @@ NEE 2025-07-18 12:00:00-04:00  75.980  76.225  75.885  76.035  76.038930   56981
 bars = download_bars(["NEE", "EXC"], start_date=datetime(
     2024, 1, 1), end_date=datetime.now() - timedelta(minutes=15), timeframe=TimeFrame.Hour)
 
-train_bars, test_bars = split_bars_train_test(bars, split_ratio=0.9)
+train_bars, test_bars = split_multi_index_bars_train_test(bars, split_ratio=0.9)
 backtester.load_train_bars(train_bars)
 backtester.run(test_bars, ignore_market_open=False)
 

@@ -5,15 +5,12 @@ import pandas as pd
 import yfinance as yf
 import holidays
 import pytz
-import warnings
 
 # path wrangling
 try:
-    from src.utilities import *
-    from src import get_logger
+    from src.utilities import get_logger, getenv
 except ImportError:
-    from __init__ import *
-    from src import get_logger
+    from __init__ import get_logger
 
 # Create a logger for the market module
 logger = get_logger("utilities.market")
