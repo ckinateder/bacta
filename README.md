@@ -4,24 +4,278 @@ Bacta is a Python library for backtesting trading strategies.
 
 ![Keltner Channel](img/DUK_NRG_Keltner_Strategy_Performance.png)
 
+## Backtesting Framework
 
+### Architecture
 
-## Installation
+The backtesting framework is built around the `EventBacktester` abstract base class, which implements an event-driven simulation engine. The framework maintains two central data structures:
 
-Use the package manager [pip](https://pip.pypa.io/en/stable/) to install bacta.
+1. **State History**: Tracks the portfolio state at each timestamp (cash, positions, portfolio value)
+2. **Order History**: Records all executed trades with timestamps, prices, and quantities
 
-```bash
-pip install bacta
+### Data Format
+
+The backtester expects price data in a specific multi-index DataFrame format:
+
+```python
+# Example data structure
+                                     open    high     low   close    volume
+symbol timestamp                                   
+AAPL   2023-01-03 09:00:00-05:00   58.560   58.93   58.20   58.45  171942.0
+       2023-01-03 10:00:00-05:00   58.330   58.36   58.10   58.25  169171.0
+       2023-01-03 11:00:00-05:00   58.340   58.38   58.15   58.30   98527.0
+MSFT   2023-01-03 09:00:00-05:00  136.535  136.99  136.20  136.45   68742.0
+       2023-01-03 10:00:00-05:00  136.530  136.80  136.15  136.30   99874.0
 ```
+
+**Requirements:**
+- Multi-index with (symbol, timestamp) 
+- OHLCV columns (open, high, low, close, volume)
+- Monotonic increasing timestamps
+- Unique timestamps per symbol
+
+### Core Components
+
+#### Order Class
+Represents trading orders with position type, symbol, price, and quantity:
+
+```python
+from backtester import Order, Position
+
+# Create a buy order
+buy_order = Order(symbol="AAPL", position=Position.LONG, price=150.0, quantity=10)
+
+# Create a sell order  
+sell_order = Order(symbol="AAPL", position=Position.SHORT, price=155.0, quantity=10)
+```
+
+#### Position Enum
+Defines the three possible position states:
+- `LONG`: Long position (buy)
+- `SHORT`: Short position (sell) 
+- `NEUTRAL`: No position
+
+### EventBacktester Class
+
+#### Initialization Parameters
+
+```python
+backtester = EventBacktester(
+    active_symbols=["AAPL", "MSFT"],     # Symbols to trade
+    cash=10000,                          # Initial capital
+    allow_short=True,                    # Allow short selling
+    allow_overdraft=False,               # Prevent negative cash
+    min_trade_value=100.0,               # Minimum trade size
+    market_hours_only=True               # Only trade during market hours
+)
+```
+
+#### Required Methods to Implement
+
+**1. `generate_order(bars: pd.DataFrame, index: pd.Timestamp) -> Order`**
+- **Purpose**: Core decision-making method that determines what trades to execute
+- **Input**: Current bar data and timestamp
+- **Output**: Order object or None (no trade)
+- **Called**: For each bar during backtest execution
+
+```python
+def generate_order(self, bars: pd.DataFrame, index: pd.Timestamp) -> Order:
+    # Example: Simple moving average crossover strategy
+    for symbol in self.active_symbols:
+        symbol_data = bars.loc[symbol]
+        
+        # Calculate indicators
+        sma_20 = symbol_data['close'].rolling(20).mean()
+        sma_50 = symbol_data['close'].rolling(50).mean()
+        
+        current_price = symbol_data.loc[index, 'close']
+        
+        # Trading logic
+        if sma_20.loc[index] > sma_50.loc[index]:  # Golden cross
+            return Order(symbol=symbol, position=Position.LONG, 
+                        price=current_price, quantity=10)
+        elif sma_20.loc[index] < sma_50.loc[index]:  # Death cross
+            return Order(symbol=symbol, position=Position.SHORT, 
+                        price=current_price, quantity=10)
+    
+    return None  # No trade
+```
+
+**2. `update_step(bars: pd.DataFrame, index: pd.Timestamp)`**
+- **Purpose**: Update strategy state, indicators, or other variables
+- **Input**: Full bar history and current timestamp
+- **Called**: Before `generate_order` for each bar
+
+```python
+def update_step(self, bars: pd.DataFrame, index: pd.Timestamp):
+    # Update any strategy state, indicators, or variables
+    # This runs before generate_order for each bar
+    pass
+```
+
+**3. `precompute_step(bars: pd.DataFrame)` (Optional)**
+- **Purpose**: Precompute indicators or setup strategy state using training data
+- **Input**: Training bar data
+- **Called**: Once during `load_train_bars()`
+
+```python
+def precompute_step(self, bars: pd.DataFrame):
+    # Precompute any indicators or setup strategy state
+    # This runs once with training data
+    pass
+```
+
+#### Built-in Methods
+
+**Execution Methods:**
+- `load_train_bars(bars)`: Load training data and call `precompute_step`
+- `run(test_bars, close_positions=True)`: Execute backtest on test data
+
+**Analysis Methods:**
+- `analyze_performance()`: Calculate performance metrics
+- `get_win_rate(threshold=0.0)`: Calculate win rate and trade analysis
+- `get_buy_and_hold_returns()`: Calculate buy-and-hold benchmark returns
+
+**Visualization Methods:**
+- `plot_equity_curve()`: Portfolio value over time
+- `plot_performance_analysis()`: Comprehensive performance dashboard
+- `plot_trade_history()`: Price charts with trade markers
+
+### Workflow
+
+#### 1. Strategy Implementation
+```python
+from backtester import EventBacktester, Order, Position
+
+class MyStrategy(EventBacktester):
+    def precompute_step(self, bars):
+        # Optional: Setup with training data
+        pass
+    
+    def update_step(self, bars, index):
+        # Optional: Update strategy state
+        pass
+    
+    def generate_order(self, bars, index):
+        # Required: Implement trading logic
+        # Return Order object or None
+        pass
+```
+
+#### 2. Data Preparation
+```python
+# Prepare your OHLCV data in multi-index format
+train_data = prepare_data(train_period)
+test_data = prepare_data(test_period)
+```
+
+#### 3. Backtest Execution
+```python
+# Initialize strategy
+strategy = MyStrategy(active_symbols=["AAPL", "MSFT"], cash=10000)
+
+# Load training data (optional)
+strategy.load_train_bars(train_data)
+
+# Run backtest
+strategy.run(test_data)
+
+# Analyze results
+performance = strategy.analyze_performance()
+print(performance)
+
+# Generate visualizations
+strategy.plot_equity_curve()
+strategy.plot_performance_analysis()
+strategy.plot_trade_history()
+```
+
+### Performance Metrics
+
+The framework calculates comprehensive performance metrics:
+
+- **Return on Investment**: Total portfolio return
+- **Maximum Drawdown**: Largest peak-to-trough decline
+- **Win Rate**: Percentage of profitable trades
+- **Buy & Hold Comparison**: Benchmark against equal-weighted buy-and-hold
+- **Trade Analysis**: Individual trade profit/loss analysis
+
+An example performance analysis output:
+```
+trading_period_start       2025-06-04 14:00:00-04:00
+trading_period_end         2025-07-31 16:00:00-04:00
+return_on_investment                        1.107842
+max_drawdown_percentage                          0.0
+start_portfolio_value                         2000.0
+end_portfolio_value                        2215.6849
+win_rate                                    0.793103
+buy_and_hold_return                         1.039722
+```
+
+### Plots
+
+The framework includes a number of plotting methods for visualizing the performance of the backtest.
+
+- `plot_equity_curve()`: Portfolio value over time
+- `plot_performance_analysis()`: Comprehensive performance dashboard
+- `plot_trade_history()`: Price charts with trade markers
+
+![Equity Curve](img/DUK_NRG_Keltner_Strategy_Equity_Curve.png)
+![Performance Analysis](img/DUK_NRG_Keltner_Strategy_Performance.png)
+![Trade History](img/DUK_NRG_Keltner_Strategy_Trades.png)
+
+### Risk Management Features
+
+- **Position Sizing**: Automatic quantity adjustment based on available cash
+- **Short Selling Control**: Optional restriction on short positions
+- **Overdraft Protection**: Prevent negative cash balances
+- **Minimum Trade Size**: Skip trades below threshold
+- **Market Hours Filtering**: Optional restriction to market hours only
+
+### Advanced Features
+
+#### Walk-Forward Optimization
+The framework includes a `WalkForwardBacktester` class for implementing walk-forward optimization strategies (currently under development). NOT YET IMPLEMENTED.
+
+#### Market Hours Handling
+Built-in support for market hours detection and optional trading restrictions during non-market hours.
+
+#### Flexible Order Management
+- Automatic position closing at end of backtest
+- Support for partial fills and position adjustments
+- Comprehensive trade history tracking
 
 ## Usage
 
-### Making Plots
+### Basic Example
 
-![Keltner Channel](img/DUK_NRG_Keltner_Strategy_Performance.png)
-![Keltner Channel Trades](img/DUK_NRG_Keltner_Strategy_Trades.png)
+```python
+import pandas as pd
+from backtester import EventBacktester, Order, Position
+
+class SimpleMAStrategy(EventBacktester):
+    def generate_order(self, bars, index):
+        for symbol in self.active_symbols:
+            symbol_data = bars.loc[symbol]
+            current_price = symbol_data.loc[index, 'close']
+            
+            # Simple moving average crossover
+            if len(symbol_data) >= 20:
+                sma_20 = symbol_data['close'].rolling(20).mean().iloc[-1]
+                if current_price > sma_20:
+                    return Order(symbol=symbol, position=Position.LONG, 
+                               price=current_price, quantity=1)
+        return None
+
+# Usage
+strategy = SimpleMAStrategy(active_symbols=["AAPL"], cash=1000)
+strategy.run(test_data) # test_data is a multi-index DataFrame with (symbol, timestamp) as the index
+performance = strategy.analyze_performance()
+```
 
 ## Development
+
+### Docker Setup
 
 A docker image is provided for convenience. To build the image, run the following command:
 
@@ -35,10 +289,15 @@ To run the image, run the following command:
 docker run -it bacta --env-file .env
 ```
 
-### Testing
+You can also install the package locally with:
 
-To run the tests, run the following command:
+```bash
+pip install -e .
+```
 
+### Tests
+
+Run all tests with:
 ```bash
 python -m unittest discover tests
 ```

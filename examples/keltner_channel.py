@@ -107,8 +107,8 @@ if __name__ == "__main__":
 
     # Plot the results
     print(dash("plotting..."))
-    # backtester.plot_equity_curve(
-    #    title="KC Strategy Equity Curve "+"_".join(symbols))
+    backtester.plot_equity_curve(
+        title="_".join(symbols)+" Keltner Strategy Equity Curve")
     backtester.plot_performance_analysis(
         title="_".join(symbols)+" Keltner Strategy Performance")
     backtester.plot_trade_history(

@@ -408,7 +408,8 @@ class EventBacktester(ABC):
         combined_returns = all_cum_returns.mean(axis=1)
 
         return pd.Series({
-            "trading_period": f"{state_history.index[1]} to {state_history.index[-1]}",
+            "trading_period_start": state_history.index[1],
+            "trading_period_end": state_history.index[-1],
             "return_on_investment": return_on_investment,
             "max_drawdown_percentage": max_drawdown_percentage,
             "start_portfolio_value": start_portfolio_value,
@@ -612,7 +613,7 @@ class EventBacktester(ABC):
         self.train_bars = train_bars
         self.precompute_step(train_bars)
 
-    def plot_equity_curve(self, figsize: tuple = DEFAULT_FIGSIZE, title: str = "Equity Curve", save_plot: bool = True, show_plot: bool = False) -> plt.Figure:
+    def plot_equity_curve(self, figsize: tuple = (20, 10), title: str = "Equity Curve", save_plot: bool = True, show_plot: bool = False) -> plt.Figure:
         """
         Plot the equity curve of the backtester.
 
