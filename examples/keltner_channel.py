@@ -62,14 +62,14 @@ class KeltnerChannelBacktester(EventBacktester):
 
         for symbol in self.active_symbols:
             if close_prices[symbol] > self.upper_bands[symbol][index]:
-                return Order(symbol, Position.SHORT, close_prices[symbol], random.randint(1, 3))
+                return Order(symbol, Position.SHORT, close_prices[symbol], 1)
             elif close_prices[symbol] < self.lower_bands[symbol][index]:
-                return Order(symbol, Position.LONG, close_prices[symbol], random.randint(1, 3))
+                return Order(symbol, Position.LONG, close_prices[symbol], 1)
 
 
 if __name__ == "__main__":
     logger.setLevel(logging.DEBUG)
-    symbols = ["DUK", "DTE"]
+    symbols = ["DUK", "NRG"]
     utility_symbols = [
         "NEE", "EXC", "D", "PCG", "XEL",
         "ED", "WEC", "DTE", "PPL", "AEE",
@@ -107,9 +107,9 @@ if __name__ == "__main__":
 
     # Plot the results
     print(dash("plotting..."))
-    backtester.plot_equity_curve(
-        title="KC Strategy Equity Curve "+"_".join(symbols))
+    # backtester.plot_equity_curve(
+    #    title="KC Strategy Equity Curve "+"_".join(symbols))
     backtester.plot_performance_analysis(
-        title="KC Strategy Performance Analysis "+"_".join(symbols))
+        title="_".join(symbols)+" Keltner Strategy Performance")
     backtester.plot_trade_history(
-        title="KC Strategy Trade History "+"_".join(symbols))
+        title="_".join(symbols)+" Keltner Strategy Trades")

@@ -98,6 +98,7 @@ def plt_show(prefix: str = "plt", folder: str = "plots", plt_cntr: bool = False)
     global PLT_CNTR
     plt.show()
     PLT_CNTR += 1
+    prefix = prefix.replace(" ", "_").replace("&", "and")
     plt.savefig(
         os.path.join(folder, f"{prefix}{'_'+PLT_CNTR if plt_cntr else ''}.png"), dpi=300
     )

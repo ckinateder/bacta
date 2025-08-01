@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+from tqdm.contrib.logging import logging_redirect_tqdm
 
 from __init__ import *
 from utilities import get_logger, is_market_open
@@ -330,28 +331,37 @@ class EventBacktester(ABC):
         logger.info(
             f"Running backtest over {len(full_bars.index[start_loc:])} bars from {timestamps[start_loc]} to {timestamps[-1]}...")
 
-        # iterate through the index of the bars
-        for index in tqdm(timestamps[start_loc:], desc="Backtesting", leave=False, dynamic_ncols=True, total=len(timestamps[start_loc:]), position=0, disable=disable_tqdm):
-            # perform update step
-            self.update_step(full_bars, index)
-            if not self.market_hours_only or is_market_open(index):
-                # make a decision
-                current_bar = full_bars.xs(index, level=1)
-                order = self.generate_order(current_bar, index)
-
-                # place the order if not None
-                if order is not None:
-                    self._place_order(order, index)
-
-                # Update portfolio value with current close prices
-                current_close_prices = current_bar.loc[:, "close"]
-                self._update_portfolio_value(current_close_prices, index)
-
-            if close_positions and index == timestamps[-2]:
-                logger.info(f"Closing positions at {index}...")
-                self._close_positions(full_bars.xs(
-                    index, level=1).loc[:, "close"], index)
+        # find the last bar that is in the market hours
+        # iterate backwards through the bars
+        for index in timestamps[start_loc:][::-1]:
+            if is_market_open(index):
+                last_market_bar = index
                 break
+
+        # iterate through the index of the bars
+        with logging_redirect_tqdm(loggers=[logger]):
+            for index in tqdm(timestamps[start_loc:], desc="Backtesting", leave=False, dynamic_ncols=True, total=len(timestamps[start_loc:]), position=0, disable=disable_tqdm):
+                # perform update step
+                self.update_step(full_bars, index)
+                if close_positions and (self.market_hours_only and index == last_market_bar) or (not self.market_hours_only and index == timestamps[-2]):
+                    logger.info(f"Closing positions at {index}...")
+                    self._close_positions(full_bars.xs(
+                        index, level=1).loc[:, "close"], index)
+                    break
+
+                if not self.market_hours_only or is_market_open(index):
+                    # make a decision
+                    current_bar = full_bars.xs(index, level=1)
+                    order = self.generate_order(current_bar, index)
+
+                    # place the order if not None
+                    if order is not None:
+                        self._place_order(order, index)
+
+                    # Update portfolio value with current close prices
+                    current_close_prices = current_bar.loc[:, "close"]
+                    self._update_portfolio_value(current_close_prices, index)
+
         # return the state history
         return self.get_state_history()
 
@@ -829,7 +839,7 @@ class EventBacktester(ABC):
         # Create figure with subplots - one for each symbol
         num_symbols = len(self.active_symbols)
         fig, axes = plt.subplots(num_symbols, 1, figsize=figsize, sharex=True)
-        fig.suptitle(title)
+        fig.suptitle(title, fontsize=14, fontweight='bold')
 
         # Handle single symbol case
         if num_symbols == 1:
@@ -848,6 +858,32 @@ class EventBacktester(ABC):
                 # Plot price history
                 ax.plot(symbol_bars.index, symbol_bars['close'],
                         label=f'{symbol} Close Price', linewidth=1.5, color='blue', alpha=0.7)
+
+                # Add market closed shading if market_hours_only is True
+                if self.market_hours_only:
+                    # Find periods where market is closed
+                    market_closed_periods = []
+                    current_period_start = None
+
+                    for timestamp in symbol_bars.index:
+                        if not is_market_open(timestamp):
+                            if current_period_start is None:
+                                current_period_start = timestamp
+                        else:
+                            if current_period_start is not None:
+                                market_closed_periods.append(
+                                    (current_period_start, timestamp))
+                                current_period_start = None
+
+                    # Handle case where market is closed at the end
+                    if current_period_start is not None:
+                        market_closed_periods.append(
+                            (current_period_start, symbol_bars.index[-1]))
+
+                    # Shade the market closed periods
+                    for start_time, end_time in market_closed_periods:
+                        ax.axvspan(start_time, end_time, alpha=0.15, color='gray',
+                                   label='Market Closed' if start_time == market_closed_periods[0][0] else "")
 
                 # Get trades for this symbol
                 symbol_trades = order_history[order_history['symbol'] == symbol]

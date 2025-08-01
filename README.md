@@ -1,7 +1,10 @@
 # Bacta
 
 Bacta is a Python library for backtesting trading strategies.
-![symbols](img/performance_analysis.png)
+
+![Keltner Channel](img/DUK_NRG_Keltner_Strategy_Performance.png)
+
+
 
 ## Installation
 
@@ -14,6 +17,9 @@ pip install bacta
 ## Usage
 
 ### Making Plots
+
+![Keltner Channel](img/DUK_NRG_Keltner_Strategy_Performance.png)
+![Keltner Channel Trades](img/DUK_NRG_Keltner_Strategy_Trades.png)
 
 ## Development
 
