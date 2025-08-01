@@ -9,7 +9,7 @@ from src.__init__ import *
 # Import the classes we need to test
 
 # Set the log level to WARNING for all loggers in this test (except the root logger)
-logging.getLogger("arbys_beef").setLevel(logging.WARNING)
+logging.getLogger("bacta").setLevel(logging.ERROR)
 
 
 class TestEventBacktester(EventBacktester):
@@ -18,8 +18,8 @@ class TestEventBacktester(EventBacktester):
     This implements a simple buy-and-hold strategy.
     """
 
-    def __init__(self, active_symbols: list[str], cash: float = 1000):
-        super().__init__(active_symbols, cash, market_hours_only=False)
+    def __init__(self, active_symbols: list[str], cash: float = 1000, **kwargs):
+        super().__init__(active_symbols, cash, market_hours_only=False, **kwargs)
         self.initialized = False
 
     def precompute_step(self, train_bars: pd.DataFrame):
@@ -77,6 +77,36 @@ class TestEventBacktesterAdvanced(EventBacktester):
                 self.trade_count += 1
                 return order
         return None
+
+
+class TestEventBacktesterDirectOrder(EventBacktester):
+    """
+    Test implementation that allows direct order placement for testing.
+    """
+
+    def __init__(self, active_symbols: list[str], cash: float = 1000, **kwargs):
+        super().__init__(active_symbols, cash, market_hours_only=False, **kwargs)
+        self.direct_orders = []
+
+    def precompute_step(self, train_bars: pd.DataFrame):
+        """Preload implementation."""
+        pass
+
+    def update_step(self, bars: pd.DataFrame, index: pd.Timestamp):
+        """Update step."""
+        pass
+
+    def generate_order(self, bars: pd.DataFrame, index: pd.Timestamp) -> Order:
+        """
+        Return orders from the direct_orders list if available.
+        """
+        if self.direct_orders:
+            return self.direct_orders.pop(0)
+        return None
+
+    def add_direct_order(self, order: Order):
+        """Add an order to be executed during the next generate_order call."""
+        self.direct_orders.append(order)
 
 
 class TestEventBacktesterUnit(unittest.TestCase):
@@ -624,6 +654,651 @@ class TestEventBacktesterIntegration(unittest.TestCase):
         pd.testing.assert_frame_equal(
             exits, exits_should_be, check_exact=False)
         self.assertEqual(win_rate, 1)
+
+
+class TestEventBacktesterEdgeCases(unittest.TestCase):
+    """Test edge cases and error conditions for EventBacktester class."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.symbols = ["AAPL", "GOOGL"]
+        self.backtester = TestEventBacktester(self.symbols, 1000.0)
+        self.create_dummy_data()
+
+    def create_dummy_data(self):
+        """Create dummy OHLCV data with proper multi-index structure."""
+        start_date = pd.Timestamp(2024, 1, 1, 9, 30, tz="America/New_York")
+        timestamps = [start_date + timedelta(hours=i) for i in range(5)]
+
+        data = []
+        for symbol in self.symbols:
+            for timestamp in timestamps:
+                base_price = 100.0 if symbol == "AAPL" else 150.0
+                close_price = base_price + np.random.normal(0, 2)
+
+                data.append({
+                    'symbol': symbol,
+                    'timestamp': timestamp,
+                    'open': close_price - np.random.uniform(0, 1),
+                    'high': close_price + np.random.uniform(0, 2),
+                    'low': close_price - np.random.uniform(0, 2),
+                    'close': close_price,
+                    'volume': int(np.random.uniform(1000, 10000))
+                })
+
+        self.dummy_bars = pd.DataFrame(data)
+        self.dummy_bars.set_index(['symbol', 'timestamp'], inplace=True)
+        self.dummy_bars = self.dummy_bars.sort_index()
+
+    def test_min_trade_value_filtering(self):
+        """Test that orders below minimum trade value are filtered out."""
+        backtester = TestEventBacktester(
+            self.symbols, 1000.0, min_trade_value=100.0)
+
+        # Create an order with value less than minimum
+        order = Order("AAPL", Position.LONG, 10.0, 5)  # Value = 50
+        timestamp = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
+
+        initial_cash = backtester.get_state()["cash"]
+        backtester._place_order(order, timestamp)
+
+        # Cash should not change since order was filtered
+        self.assertEqual(backtester.get_state()["cash"], initial_cash)
+
+    def test_overdraft_protection(self):
+        """Test overdraft protection when allow_overdraft=False."""
+        backtester = TestEventBacktester(
+            self.symbols, 100.0, allow_overdraft=False)
+
+        # Try to place an order that exceeds available cash
+        # Value = 250, but only 100 cash
+        order = Order("AAPL", Position.LONG, 50.0, 5)
+        timestamp = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
+
+        backtester._place_order(order, timestamp)
+
+        # Should adjust quantity to fit available cash
+        final_state = backtester.get_state()
+        self.assertGreaterEqual(final_state["cash"], 0)
+        self.assertEqual(final_state["AAPL"], 2)  # 100/50 = 2 shares
+
+    def test_short_selling_restriction(self):
+        """Test short selling restriction when allow_short=False."""
+        backtester = TestEventBacktester(
+            self.symbols, 1000.0, allow_short=False)
+
+        # Try to place a short order
+        order = Order("AAPL", Position.SHORT, 50.0, 5)
+        timestamp = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
+
+        backtester._place_order(order, timestamp)
+
+        # Should not allow short selling
+        final_state = backtester.get_state()
+        self.assertEqual(final_state["AAPL"], 0)
+
+    def test_empty_order_history_win_rate(self):
+        """Test win rate calculation with empty order history."""
+        win_rate = self.backtester.get_win_rate()
+        self.assertEqual(win_rate, 0.0)
+
+    def test_single_order_win_rate(self):
+        """Test win rate calculation with only one order (unclosed position)."""
+        order = Order("AAPL", Position.LONG, 100.0, 1)
+        timestamp = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
+        self.backtester._place_order(order, timestamp)
+
+        win_rate = self.backtester.get_win_rate()
+        self.assertEqual(win_rate, 0.0)  # No completed trades
+
+    def test_zero_cash_initialization(self):
+        """Test initialization with zero cash."""
+        backtester = TestEventBacktester(self.symbols, 0.0)
+        self.assertEqual(backtester.get_state()["cash"], 0.0)
+        self.assertEqual(backtester.get_state()["portfolio_value"], 0.0)
+
+    def test_negative_cash_initialization(self):
+        """Test initialization with negative cash."""
+        backtester = TestEventBacktester(self.symbols, -100.0)
+        self.assertEqual(backtester.get_state()["cash"], -100.0)
+        self.assertEqual(backtester.get_state()["portfolio_value"], -100.0)
+
+    def test_large_quantity_orders(self):
+        """Test handling of very large quantity orders."""
+        # Use the direct order test class with enough cash
+        direct_backtester = TestEventBacktesterDirectOrder(
+            self.symbols, 200000000.0)  # 200M cash to cover 100M order
+
+        # Test with very large quantity
+        order = Order("AAPL", Position.LONG, 100.0, 1000000)
+        timestamp = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
+
+        direct_backtester._place_order(order, timestamp)
+
+        # Should handle large quantities without errors
+        final_state = direct_backtester.get_state()
+        self.assertEqual(final_state["AAPL"], 1000000)
+
+        # Test that the order was recorded in history
+        order_history = direct_backtester.get_history()
+        self.assertEqual(len(order_history), 1)
+        self.assertEqual(order_history.iloc[0]["quantity"], 1000000)
+
+    def test_zero_quantity_orders(self):
+        """Test handling of zero quantity orders."""
+        order = Order("AAPL", Position.LONG, 100.0, 0)
+        timestamp = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
+
+        initial_cash = self.backtester.get_state()["cash"]
+        self.backtester._place_order(order, timestamp)
+
+        # Should not change cash or position
+        final_state = self.backtester.get_state()
+        self.assertEqual(final_state["cash"], initial_cash)
+        self.assertEqual(final_state["AAPL"], 0)
+
+    def test_portfolio_value_with_negative_positions(self):
+        """Test portfolio value calculation with negative positions."""
+        # Create a short position
+        order = Order("AAPL", Position.SHORT, 100.0, 2)
+        timestamp = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
+        self.backtester._place_order(order, timestamp)
+
+        # Update portfolio value with current prices
+        # Price went down, short position profits
+        prices = pd.Series({"AAPL": 90.0})
+        self.backtester._update_portfolio_value(prices, timestamp)
+
+        final_state = self.backtester.get_state()
+        # cash + short proceeds - position value
+        expected_portfolio_value = 1000.0 + (100.0 * 2) + (-2 * 90.0)
+        self.assertEqual(
+            final_state["portfolio_value"], expected_portfolio_value)
+
+
+class TestEventBacktesterPlotting(unittest.TestCase):
+    """Test plotting methods for EventBacktester class."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.symbols = ["AAPL", "GOOGL"]
+        self.backtester = TestEventBacktester(self.symbols, 1000.0)
+        self.create_dummy_data()
+
+    def create_dummy_data(self):
+        """Create dummy OHLCV data with proper multi-index structure."""
+        start_date = pd.Timestamp(2024, 1, 1, 9, 30, tz="America/New_York")
+        timestamps = [start_date + timedelta(hours=i) for i in range(20)]
+
+        data = []
+        for symbol in self.symbols:
+            base_price = 100.0 if symbol == "AAPL" else 150.0
+            for i, timestamp in enumerate(timestamps):
+                # Create some price movement
+                price_change = np.sin(i / 5) * 10  # Oscillating price
+                close_price = base_price + price_change
+
+                data.append({
+                    'symbol': symbol,
+                    'timestamp': timestamp,
+                    'open': close_price - np.random.uniform(0, 1),
+                    'high': close_price + np.random.uniform(0, 2),
+                    'low': close_price - np.random.uniform(0, 2),
+                    'close': close_price,
+                    'volume': int(np.random.uniform(1000, 10000))
+                })
+
+        self.dummy_bars = pd.DataFrame(data)
+        self.dummy_bars.set_index(['symbol', 'timestamp'], inplace=True)
+        self.dummy_bars = self.dummy_bars.sort_index()
+
+    def test_plot_equity_curve_empty_history(self):
+        """Test plotting equity curve with empty state history."""
+        # Should handle empty history gracefully
+        fig = self.backtester.plot_equity_curve(
+            save_plot=False, show_plot=False)
+        self.assertIsNone(fig)
+
+    def test_plot_equity_curve_with_trades(self):
+        """Test plotting equity curve with trading history."""
+        # Run a backtest to generate some history
+        self.backtester.run(self.dummy_bars, disable_tqdm=True)
+
+        # Plot equity curve
+        fig = self.backtester.plot_equity_curve(
+            save_plot=False, show_plot=False)
+        self.assertIsNotNone(fig)
+        self.assertEqual(fig.__class__.__name__, 'Figure')
+
+    def test_plot_performance_analysis_empty_history(self):
+        """Test plotting performance analysis with empty state history."""
+        # Should handle empty history gracefully
+        fig = self.backtester.plot_performance_analysis(
+            save_plot=False, show_plot=False)
+        self.assertIsNone(fig)
+
+    def test_plot_performance_analysis_with_trades(self):
+        """Test plotting performance analysis with trading history."""
+        # Run a backtest to generate some history
+        self.backtester.run(self.dummy_bars, disable_tqdm=True)
+
+        # Plot performance analysis
+        fig = self.backtester.plot_performance_analysis(
+            save_plot=False, show_plot=False)
+        self.assertIsNotNone(fig)
+        self.assertEqual(fig.__class__.__name__, 'Figure')
+
+    def test_plot_trade_history_empty_orders(self):
+        """Test plotting trade history with empty order history."""
+        # Should handle empty order history gracefully
+        fig = self.backtester.plot_trade_history(
+            save_plot=False, show_plot=False)
+        self.assertIsNone(fig)
+
+    def test_plot_trade_history_with_trades(self):
+        """Test plotting trade history with trading history."""
+        # Run a backtest to generate some history
+        self.backtester.run(self.dummy_bars, disable_tqdm=True)
+
+        # Plot trade history
+        fig = self.backtester.plot_trade_history(
+            save_plot=False, show_plot=False)
+        self.assertIsNotNone(fig)
+        self.assertEqual(fig.__class__.__name__, 'Figure')
+
+    def test_plot_custom_figsize(self):
+        """Test plotting with custom figure sizes."""
+        # Run a backtest to generate some history
+        self.backtester.run(self.dummy_bars, disable_tqdm=True)
+
+        # Test with custom figsize
+        custom_figsize = (15, 8)
+        fig = self.backtester.plot_equity_curve(
+            figsize=custom_figsize, save_plot=False, show_plot=False)
+        self.assertIsNotNone(fig)
+        self.assertEqual(fig.get_size_inches().tolist(), list(custom_figsize))
+
+    def test_plot_custom_title(self):
+        """Test plotting with custom titles."""
+        # Run a backtest to generate some history
+        self.backtester.run(self.dummy_bars, disable_tqdm=True)
+
+        # Test with custom title
+        custom_title = "Custom Test Title"
+        fig = self.backtester.plot_equity_curve(
+            title=custom_title, save_plot=False, show_plot=False)
+        self.assertIsNotNone(fig)
+        self.assertEqual(fig.axes[0].get_title(), custom_title)
+
+
+class TestEventBacktesterAdvancedFeatures(unittest.TestCase):
+    """Test advanced features of EventBacktester class."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.symbols = ["AAPL", "GOOGL", "MSFT"]
+        self.backtester = TestEventBacktester(self.symbols, 10000.0)
+        self.create_dummy_data()
+
+    def create_dummy_data(self):
+        """Create dummy OHLCV data with proper multi-index structure."""
+        start_date = pd.Timestamp(2024, 1, 1, 9, 30, tz="America/New_York")
+        timestamps = [start_date + timedelta(hours=i) for i in range(50)]
+
+        data = []
+        for symbol in self.symbols:
+            base_price = 100.0 + (hash(symbol) % 50)
+            for i, timestamp in enumerate(timestamps):
+                # Create trending price movement
+                trend = i * 0.5  # Upward trend
+                noise = np.random.normal(0, 2)
+                close_price = base_price + trend + noise
+
+                data.append({
+                    'symbol': symbol,
+                    'timestamp': timestamp,
+                    'open': close_price - np.random.uniform(0, 1),
+                    'high': close_price + np.random.uniform(0, 2),
+                    'low': close_price - np.random.uniform(0, 2),
+                    'close': close_price,
+                    'volume': int(np.random.uniform(1000, 10000))
+                })
+
+        self.dummy_bars = pd.DataFrame(data)
+        self.dummy_bars.set_index(['symbol', 'timestamp'], inplace=True)
+        self.dummy_bars = self.dummy_bars.sort_index()
+
+    def test_buy_and_hold_returns_calculation(self):
+        """Test buy and hold returns calculation."""
+        # Run a backtest
+        self.backtester.run(self.dummy_bars, disable_tqdm=True)
+
+        # Get buy and hold returns
+        bh_returns = self.backtester.get_buy_and_hold_returns()
+
+        # Check structure
+        self.assertIsInstance(bh_returns, pd.DataFrame)
+        self.assertEqual(len(bh_returns.columns), len(self.symbols))
+
+        # Check that all symbols are present
+        for symbol in self.symbols:
+            self.assertIn(symbol, bh_returns.columns)
+
+    def test_win_rate_with_threshold(self):
+        """Test win rate calculation with different thresholds."""
+        # Create some trades with known outcomes
+        orders = [
+            Order("AAPL", Position.LONG, 100.0, 1),
+            Order("AAPL", Position.SHORT, 110.0, 1),  # 10% profit
+            Order("AAPL", Position.LONG, 100.0, 1),
+            Order("AAPL", Position.SHORT, 105.0, 1),  # 5% profit
+            Order("AAPL", Position.LONG, 100.0, 1),
+            Order("AAPL", Position.SHORT, 95.0, 1),   # 5% loss
+        ]
+
+        for i, order in enumerate(orders):
+            timestamp = pd.Timestamp(
+                2024, 1, 1, 10, 0, tz="America/New_York") + timedelta(hours=i)
+            self.backtester._place_order(order, timestamp)
+
+        # Test with 0% threshold (all profitable trades are wins)
+        win_rate_0 = self.backtester.get_win_rate(percentage_threshold=0.0)
+        self.assertEqual(win_rate_0, 2/3)  # 2 out of 3 trades are profitable
+
+        # Test with 5% threshold (only trades with >5% profit are wins)
+        win_rate_5 = self.backtester.get_win_rate(percentage_threshold=0.05)
+        self.assertEqual(win_rate_5, 1/3)  # Only 1 trade has >5% profit
+
+    def test_multiple_symbol_trading(self):
+        """Test trading across multiple symbols."""
+        # Create trades for multiple symbols
+        orders = [
+            Order("AAPL", Position.LONG, 100.0, 1),
+            Order("GOOGL", Position.LONG, 150.0, 1),
+            Order("MSFT", Position.LONG, 200.0, 1),
+            Order("AAPL", Position.SHORT, 110.0, 1),
+            Order("GOOGL", Position.SHORT, 160.0, 1),
+            Order("MSFT", Position.SHORT, 210.0, 1),
+        ]
+
+        for i, order in enumerate(orders):
+            timestamp = pd.Timestamp(
+                2024, 1, 1, 10, 0, tz="America/New_York") + timedelta(hours=i)
+            self.backtester._place_order(order, timestamp)
+
+        # Check final positions
+        final_state = self.backtester.get_state()
+        self.assertEqual(final_state["AAPL"], 0)  # Closed position
+        self.assertEqual(final_state["GOOGL"], 0)  # Closed position
+        self.assertEqual(final_state["MSFT"], 0)   # Closed position
+
+    def test_order_value_calculation(self):
+        """Test Order.get_value() method."""
+        order = Order("AAPL", Position.LONG, 100.0, 2.5)
+        expected_value = 100.0 * 2.5
+        self.assertEqual(order.get_value(), expected_value)
+
+    def test_order_string_representation(self):
+        """Test Order.__str__ method."""
+        order = Order("AAPL", Position.LONG, 100.0, 2)
+        expected_str = "LONG 2 of AAPL at 100.0"
+        self.assertEqual(str(order), expected_str)
+
+    def test_position_enum_values(self):
+        """Test Position enum values."""
+        self.assertEqual(Position.LONG.value, 1)
+        self.assertEqual(Position.SHORT.value, -1)
+        self.assertEqual(Position.NEUTRAL.value, 0)
+
+    def test_state_history_ffill(self):
+        """Test that state history forward fills correctly."""
+        # Make trades at different timestamps
+        timestamp1 = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
+        timestamp2 = pd.Timestamp(2024, 1, 1, 12, 0, tz="America/New_York")
+
+        self.backtester._place_buy_order("AAPL", 100.0, 1, timestamp1)
+        self.backtester._place_buy_order("AAPL", 110.0, 1, timestamp2)
+
+        # Check that state history has no NaN values
+        state_history = self.backtester.get_state_history()
+        self.assertFalse(state_history.isna().any().any())
+
+
+class TestEventBacktesterDataValidation(unittest.TestCase):
+    """Test data validation and error handling for EventBacktester class."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.symbols = ["AAPL", "GOOGL"]
+        self.backtester = TestEventBacktester(self.symbols, 1000.0)
+
+    def test_invalid_dataframe_structure(self):
+        """Test handling of invalid dataframe structures."""
+        # Test with single-level index
+        invalid_bars = pd.DataFrame({
+            'open': [100, 101, 102],
+            'high': [105, 106, 107],
+            'low': [95, 96, 97],
+            'close': [103, 104, 105],
+            'volume': [1000, 1100, 1200]
+        })
+
+        with self.assertRaises(AssertionError):
+            self.backtester.run(invalid_bars)
+
+    def test_missing_symbols_in_data(self):
+        """Test handling of missing symbols in data."""
+        # Create data with only one symbol
+        start_date = pd.Timestamp(2024, 1, 1, 9, 30, tz="America/New_York")
+        timestamps = [start_date + timedelta(hours=i) for i in range(5)]
+
+        data = []
+        for timestamp in timestamps:
+            data.append({
+                'symbol': 'AAPL',  # Only AAPL, missing GOOGL
+                'timestamp': timestamp,
+                'open': 100.0,
+                'high': 105.0,
+                'low': 95.0,
+                'close': 103.0,
+                'volume': 1000
+            })
+
+        single_symbol_data = pd.DataFrame(data)
+        single_symbol_data.set_index(['symbol', 'timestamp'], inplace=True)
+
+        # Should raise KeyError when trying to access missing symbols
+        with self.assertRaises(KeyError):
+            self.backtester.run(single_symbol_data)
+
+    def test_non_monotonic_timestamps(self):
+        """Test handling of non-monotonic timestamps."""
+        # Create data with non-monotonic timestamps
+        start_date = pd.Timestamp(2024, 1, 1, 9, 30, tz="America/New_York")
+        timestamps = [start_date + timedelta(hours=i)
+                      for i in [0, 2, 1, 3, 4]]  # Non-monotonic
+
+        data = []
+        for symbol in self.symbols:
+            for timestamp in timestamps:
+                data.append({
+                    'symbol': symbol,
+                    'timestamp': timestamp,
+                    'open': 100.0,
+                    'high': 105.0,
+                    'low': 95.0,
+                    'close': 103.0,
+                    'volume': 1000
+                })
+
+        invalid_bars = pd.DataFrame(data)
+        invalid_bars.set_index(['symbol', 'timestamp'], inplace=True)
+
+        with self.assertRaises(AssertionError):
+            self.backtester.run(invalid_bars)
+
+    def test_duplicate_timestamps(self):
+        """Test handling of duplicate timestamps."""
+        # Create data with duplicate timestamps
+        start_date = pd.Timestamp(2024, 1, 1, 9, 30, tz="America/New_York")
+        # Duplicate at hour 1
+        timestamps = [start_date + timedelta(hours=i) for i in [0, 1, 1, 2, 3]]
+
+        data = []
+        for symbol in self.symbols:
+            for timestamp in timestamps:
+                data.append({
+                    'symbol': symbol,
+                    'timestamp': timestamp,
+                    'open': 100.0,
+                    'high': 105.0,
+                    'low': 95.0,
+                    'close': 103.0,
+                    'volume': 1000
+                })
+
+        invalid_bars = pd.DataFrame(data)
+        invalid_bars.set_index(['symbol', 'timestamp'], inplace=True)
+
+        with self.assertRaises(AssertionError):
+            self.backtester.run(invalid_bars)
+
+    def test_non_timestamp_index(self):
+        """Test handling of non-timestamp index."""
+        # Create data with string timestamps instead of pd.Timestamp
+        data = []
+        for symbol in self.symbols:
+            for i in range(5):
+                data.append({
+                    'symbol': symbol,
+                    'timestamp': f"2024-01-01 {9+i}:30:00",  # String timestamp
+                    'open': 100.0,
+                    'high': 105.0,
+                    'low': 95.0,
+                    'close': 103.0,
+                    'volume': 1000
+                })
+
+        invalid_bars = pd.DataFrame(data)
+        invalid_bars.set_index(['symbol', 'timestamp'], inplace=True)
+
+        with self.assertRaises(AssertionError):
+            self.backtester.run(invalid_bars)
+
+
+class TestEventBacktesterStressTests(unittest.TestCase):
+    """Stress tests for EventBacktester class."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.symbols = ["AAPL", "GOOGL", "MSFT", "TSLA", "AMZN"]
+        self.backtester = TestEventBacktester(self.symbols, 100000.0)
+
+    def test_large_dataset_performance(self):
+        """Test performance with large dataset."""
+        # Create large dataset (1000 timestamps, 5 symbols = 5000 rows)
+        start_date = pd.Timestamp(2024, 1, 1, 9, 30, tz="America/New_York")
+        timestamps = [start_date + timedelta(hours=i) for i in range(1000)]
+
+        data = []
+        for symbol in self.symbols:
+            base_price = 100.0 + (hash(symbol) % 100)
+            for i, timestamp in enumerate(timestamps):
+                close_price = base_price + np.random.normal(0, 5)
+                data.append({
+                    'symbol': symbol,
+                    'timestamp': timestamp,
+                    'open': close_price - np.random.uniform(0, 1),
+                    'high': close_price + np.random.uniform(0, 2),
+                    'low': close_price - np.random.uniform(0, 2),
+                    'close': close_price,
+                    'volume': int(np.random.uniform(1000, 10000))
+                })
+
+        large_bars = pd.DataFrame(data)
+        large_bars.set_index(['symbol', 'timestamp'], inplace=True)
+        large_bars = large_bars.sort_index()
+
+        # Run backtest on large dataset
+        start_time = pd.Timestamp.now()
+        state_history = self.backtester.run(large_bars, disable_tqdm=True)
+        end_time = pd.Timestamp.now()
+
+        # Check that it completes without errors
+        self.assertIsInstance(state_history, pd.DataFrame)
+        self.assertGreater(len(state_history), 0)
+
+        # Check performance (should complete within reasonable time)
+        execution_time = (end_time - start_time).total_seconds()
+        # Should complete within 60 seconds
+        self.assertLess(execution_time, 60)
+
+    def test_high_frequency_trading_simulation(self):
+        """Test high-frequency trading simulation with many small trades."""
+        # Create dataset with many timestamps
+        start_date = pd.Timestamp(2024, 1, 1, 9, 30, tz="America/New_York")
+        timestamps = [start_date + timedelta(minutes=i)
+                      for i in range(1000)]  # 1000 minutes
+
+        data = []
+        for symbol in self.symbols:
+            base_price = 100.0 + (hash(symbol) % 100)
+            for i, timestamp in enumerate(timestamps):
+                close_price = base_price + np.random.normal(0, 1)
+                data.append({
+                    'symbol': symbol,
+                    'timestamp': timestamp,
+                    'open': close_price - np.random.uniform(0, 0.5),
+                    'high': close_price + np.random.uniform(0, 1),
+                    'low': close_price - np.random.uniform(0, 1),
+                    'close': close_price,
+                    'volume': int(np.random.uniform(1000, 10000))
+                })
+
+        hf_bars = pd.DataFrame(data)
+        hf_bars.set_index(['symbol', 'timestamp'], inplace=True)
+        hf_bars = hf_bars.sort_index()
+
+        # Run backtest
+        state_history = self.backtester.run(hf_bars, disable_tqdm=True)
+
+        # Check results
+        self.assertIsInstance(state_history, pd.DataFrame)
+        self.assertGreater(len(state_history), 0)
+
+        # Check order history (should have many orders)
+        order_history = self.backtester.get_history()
+        self.assertGreater(len(order_history), 0)
+
+    def test_memory_usage_with_large_positions(self):
+        """Test memory usage with very large position sizes."""
+        # Use the direct order test class with enough cash
+        direct_backtester = TestEventBacktesterDirectOrder(
+            self.symbols, 200000000.0)  # 200M cash to cover 100M order
+
+        # Test with very large quantities
+        large_order = Order("AAPL", Position.LONG, 100.0, 1000000)
+        timestamp = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
+
+        # Should handle large quantities without memory issues
+        direct_backtester._place_order(large_order, timestamp)
+
+        final_state = direct_backtester.get_state()
+        self.assertEqual(final_state["AAPL"], 1000000)
+
+        # Check that portfolio value calculation works with large numbers
+        prices = pd.Series({"AAPL": 100.0})
+        direct_backtester._update_portfolio_value(prices, timestamp)
+
+        expected_portfolio_value = 200000000.0 - \
+            (100.0 * 1000000) + (100.0 * 1000000)
+        self.assertEqual(direct_backtester.get_state()[
+                         "portfolio_value"], expected_portfolio_value)
+
+        # Test that the order was recorded in history
+        order_history = direct_backtester.get_history()
+        self.assertEqual(len(order_history), 1)
+        self.assertEqual(order_history.iloc[0]["quantity"], 1000000)
 
 
 if __name__ == '__main__':

@@ -39,7 +39,7 @@ class CustomHandler(logging.StreamHandler):
 
 
 # Create the top-level logger
-logger = logging.getLogger("arbys_beef")
+logger = logging.getLogger("bacta")
 logger.setLevel(logging.INFO)
 
 # Add custom handler if no handlers are already configured
@@ -64,4 +64,4 @@ def get_logger(name: str | None = None) -> logging.Logger:
     if name is None:
         return logger
     else:
-        return logging.getLogger(f"arbys_beef.{name}")
+        return logging.getLogger(f"bacta.{name}")

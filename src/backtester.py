@@ -560,8 +560,11 @@ class EventBacktester(ABC):
         net_profits = net_profits.reset_index(drop=True)
 
         # calculate win rate as the number of positive net profits divided by the total number of net profits
-        win_rate = len([profit for profit in net_profits["win"]
-                       if profit]) / len(net_profits)
+        if len(net_profits) == 0:
+            win_rate = 0.0
+        else:
+            win_rate = len([profit for profit in net_profits["win"]
+                           if profit]) / len(net_profits)
 
         # convert d
 
@@ -637,6 +640,12 @@ class EventBacktester(ABC):
         portfolio_values = state_history["portfolio_value"]
         # Filter out the initial state (index 0) and only plot timestamp-indexed data
         portfolio_values_filtered = portfolio_values[portfolio_values.index != 0]
+
+        if len(portfolio_values_filtered) == 0:
+            logger.warning(
+                "No trading data available for plotting equity curve")
+            return None
+
         ax.step(portfolio_values_filtered.index, portfolio_values_filtered,
                 label="Portfolio Value", linewidth=2, color='blue', where='post')
 
@@ -713,6 +722,11 @@ class EventBacktester(ABC):
         portfolio_values = state_history["portfolio_value"]
         # Filter out the initial state (index 0) and only plot timestamp-indexed data
         portfolio_values_filtered = portfolio_values[portfolio_values.index != 0]
+
+        if len(portfolio_values_filtered) == 0:
+            logger.warning(
+                "No trading data available for plotting performance analysis")
+            return None
 
         # Subplot 1: Cumulative Returns
         returns = portfolio_values_filtered.pct_change().dropna()
