@@ -245,33 +245,9 @@ Built-in support for market hours detection and optional trading restrictions du
 - Support for partial fills and position adjustments
 - Comprehensive trade history tracking
 
-## Usage
+## Examples
 
-### Basic Example
-
-```python
-import pandas as pd
-from backtester import EventBacktester, Order, Position
-
-class SimpleMAStrategy(EventBacktester):
-    def generate_order(self, bars, index):
-        for symbol in self.active_symbols:
-            symbol_data = bars.loc[symbol]
-            current_price = symbol_data.loc[index, 'close']
-            
-            # Simple moving average crossover
-            if len(symbol_data) >= 20:
-                sma_20 = symbol_data['close'].rolling(20).mean().iloc[-1]
-                if current_price > sma_20:
-                    return Order(symbol=symbol, position=Position.LONG, 
-                               price=current_price, quantity=1)
-        return None
-
-# Usage
-strategy = SimpleMAStrategy(active_symbols=["AAPL"], cash=1000)
-strategy.run(test_data) # test_data is a multi-index DataFrame with (symbol, timestamp) as the index
-performance = strategy.analyze_performance()
-```
+See the [examples](examples) directory for usage examples.
 
 ## Development
 
