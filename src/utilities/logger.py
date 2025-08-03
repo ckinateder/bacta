@@ -1,67 +1,110 @@
 import logging
+import datetime
+from typing import Optional
+import os
 
 
-class CustomFormatter(logging.Formatter):
-    """Custom formatter for the logger."""
-
-    # Color codes for different log levels (no underlining)
-    grey = "\x1b[90m"
-    blue = "\x1b[34m"
-    yellow = "\x1b[33m"
-    red = "\x1b[31m"
-    bold_red = "\x1b[31;1m"
-    reset = "\x1b[0m"
-
-    # Format string for different log levels
-    format_str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    format_str = "%(name)s:%(levelname)s: %(message)s"
-
-    FORMATS = {
-        logging.DEBUG: format_str + reset,
-        logging.INFO: format_str + reset,
-        logging.WARNING: yellow + format_str + reset,
-        logging.ERROR: red + format_str + reset,
-        logging.CRITICAL: bold_red + format_str + reset
-    }
-
-    def format(self, record):
-        log_fmt = self.FORMATS.get(record.levelno)
-        formatter = logging.Formatter(log_fmt, datefmt="%Y-%m-%d %H:%M:%S")
-        return formatter.format(record)
-
-
-class CustomHandler(logging.StreamHandler):
-    """Custom handler that uses the custom formatter."""
-
-    def __init__(self, stream=None):
-        super().__init__(stream)
-        self.setFormatter(CustomFormatter())
-
-
-# Create the top-level logger
-logger = logging.getLogger("bacta")
-logger.setLevel(logging.INFO)
-
-# Add custom handler if no handlers are already configured
-if not logger.handlers:
-    handler = CustomHandler()
-    logger.addHandler(handler)
-
-# Prevent propagation to avoid duplicate logs
-logger.propagate = False
-
-
-def get_logger(name: str | None = None) -> logging.Logger:
+class CustomLogger:
     """
-    Get a logger instance. If no name is provided, returns the top-level logger.
+    Custom logger class that provides formatted logging output with timestamps,
+    function names, and log levels.
+    """
+
+    def __init__(self, name: str = "iq_project", level: int = logging.INFO):
+        self.logger = logging.getLogger(name)
+        self.logger.setLevel(level)
+
+        # Create console handler if it doesn't exist
+        if not self.logger.handlers:
+            console_handler = logging.StreamHandler()
+            console_handler.setLevel(logging.DEBUG)
+
+            # Create formatter
+            formatter = logging.Formatter(
+                '[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s',
+                datefmt='%Y-%m-%d %H:%M:%S'
+            )
+            console_handler.setFormatter(formatter)
+
+            # Add handler to logger
+            self.logger.addHandler(console_handler)
+
+    def debug(self, message: str):
+        """Log a debug message."""
+        self.logger.debug(message)
+
+    def info(self, message: str):
+        """Log an info message."""
+        self.logger.info(message)
+
+    def warning(self, message: str):
+        """Log a warning message."""
+        self.logger.warning(message)
+
+    def error(self, message: str):
+        """Log an error message."""
+        self.logger.error(message)
+
+
+# Global logger instance
+_logger_instance: Optional[CustomLogger] = None
+
+
+def get_log_level() -> int:
+    """
+    Get the log level from the environment variable LOG_LEVEL.
+    """
+    if os.getenv("LOG_LEVEL") == "DEBUG":
+        return logging.DEBUG
+    elif os.getenv("LOG_LEVEL") == "INFO":
+        return logging.INFO
+    elif os.getenv("LOG_LEVEL") == "WARNING":
+        return logging.WARNING
+    elif os.getenv("LOG_LEVEL") == "ERROR":
+        return logging.ERROR
+    elif os.getenv("LOG_LEVEL") == "CRITICAL":
+        return logging.CRITICAL
+    else:
+        return logging.INFO
+
+
+def get_logger(name: str = "iq_project", level: int = get_log_level()) -> CustomLogger:
+    """
+    Get a logger instance. Creates a new one if it doesn't exist.
 
     Args:
-        name (str, optional): Name for the logger. Defaults to None.
+        name: Name of the logger
+        level: Logging level (default: environment variable LOG_LEVEL)
 
     Returns:
-        logging.Logger: Logger instance
+        CustomLogger instance
     """
-    if name is None:
-        return logger
+    global _logger_instance
+    if _logger_instance is None:
+        _logger_instance = CustomLogger(name, level)
+    return _logger_instance
+
+
+def set_log_level(level: int) -> None:
+    """
+    Set the global log level for the logger instance.
+
+    Args:
+        level: Logging level (e.g., logging.DEBUG, logging.INFO,
+               logging.WARNING, logging.ERROR, logging.CRITICAL)
+
+    Examples:
+        >>> from src.utilities.logger import set_log_level
+        >>> import logging
+        >>> set_log_level(logging.DEBUG)  # Enable debug messages
+        >>> set_log_level(logging.WARNING)  # Only show warnings and errors
+    """
+    global _logger_instance
+    if _logger_instance is not None:
+        _logger_instance.logger.setLevel(level)
+        # Also update the handler level to ensure all messages at the new level are processed
+        for handler in _logger_instance.logger.handlers:
+            handler.setLevel(level)
     else:
-        return logging.getLogger(f"bacta.{name}")
+        # If no logger instance exists yet, create one with the specified level
+        _logger_instance = CustomLogger(level=level)

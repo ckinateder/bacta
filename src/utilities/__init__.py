@@ -2,7 +2,7 @@ import os
 import pandas as pd
 from dotenv import load_dotenv
 import sys
-from .logger import get_logger
+from .logger import get_logger, set_log_level
 import pytz
 import holidays
 from datetime import datetime, time

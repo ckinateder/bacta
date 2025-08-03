@@ -6,10 +6,11 @@ from datetime import timedelta
 from abc import ABC
 import logging
 from src.__init__ import *
+from src.utilities.logger import set_log_level
 # Import the classes we need to test
 
 # Set the log level to WARNING for all loggers in this test (except the root logger)
-logging.getLogger("bacta").setLevel(logging.ERROR)
+set_log_level(logging.WARNING)
 
 
 class TestEventBacktester(EventBacktester):

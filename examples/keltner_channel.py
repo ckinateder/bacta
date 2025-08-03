@@ -15,10 +15,9 @@ from bars import (
 from __init__ import *
 from src import *
 from src.backtester import EventBacktester, Order, Position
-from src.utilities import dash, get_logger
+from src.utilities import dash, get_logger, set_log_level
 
-logger = get_logger()
-logger.setLevel(logging.DEBUG)
+set_log_level(logging.INFO)
 
 
 class KeltnerChannelBacktester(EventBacktester):
