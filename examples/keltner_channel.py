@@ -17,7 +17,8 @@ from src import *
 from src.backtester import EventBacktester, Order, Position
 from src.utilities import dash, get_logger
 
-logger = get_logger("keltner_channel")
+logger = get_logger()
+logger.setLevel(logging.DEBUG)
 
 
 class KeltnerChannelBacktester(EventBacktester):
@@ -68,7 +69,6 @@ class KeltnerChannelBacktester(EventBacktester):
 
 
 if __name__ == "__main__":
-    logger.setLevel(logging.DEBUG)
     symbols = ["DUK", "NRG"]
     utility_symbols = [
         "NEE", "EXC", "D", "PCG", "XEL",

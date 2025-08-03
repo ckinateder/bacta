@@ -21,7 +21,7 @@ class Position(Enum):
     NEUTRAL = 0
 
 
-QUANTITY_PRECISION = 4
+QUANTITY_PRECISION = 2
 
 
 class Order:
@@ -249,7 +249,8 @@ class EventBacktester(ABC):
         # check if overdraft is allowed
         adjusted = False
         if not self.allow_overdraft and order.position == Position.LONG and self.get_state()["cash"] < order.get_value():
-            order.quantity = self.get_state()["cash"] // order.price
+            order.quantity = round(
+                self.get_state()["cash"] / order.price, QUANTITY_PRECISION)
             adjusted = True
         # check if shorting is allowed
         if not self.allow_short and order.position == Position.SHORT and self.get_state()[order.symbol] < order.quantity:
@@ -259,7 +260,7 @@ class EventBacktester(ABC):
         # don't place an order if the value is less than the minimum trade value
         if order.get_value() < self.min_trade_value:
             logger.debug(
-                f"Skipping {order.position.name} order for {order.symbol} because trade value is less than ${self.min_trade_value:.2f}.")
+                f"Skipping {order.position.name} order for {order.symbol} because trade value ${order.get_value():.2f} < ${self.min_trade_value:.2f}.")
             return
         else:
             logger.debug(
@@ -830,7 +831,7 @@ class EventBacktester(ABC):
 
         return fig
 
-    def plot_trade_history(self, figsize: tuple = (20, 12), save_plot: bool = True, show_plot: bool = False, title: str = "Trade History", summary_stats: bool = False) -> plt.Figure:
+    def plot_trade_history(self, figsize: tuple = (20, 12), save_plot: bool = True, show_plot: bool = False, title: str = "Trade History", summary_stats: bool = False, show_quantity: bool = True) -> plt.Figure:
         """
         Plot the price history with trade markers showing buy and sell orders.
 
@@ -918,10 +919,11 @@ class EventBacktester(ABC):
 
                         # Add quantity annotations for buy orders
                         for idx, row in buy_orders.iterrows():
-                            ax.annotate(f"{row['quantity']:.0f}",
-                                        (idx, row['price']),
-                                        xytext=(5, 10), textcoords='offset points',
-                                        fontsize=8, color='green', weight='bold')
+                            if show_quantity:
+                                ax.annotate(f"{row['quantity']:.0f}",
+                                            (idx, row['price']),
+                                            xytext=(5, 10), textcoords='offset points',
+                                            fontsize=8, color='green', weight='bold')
 
                     # Plot sell orders (red triangles pointing down)
                     if not sell_orders.empty:
@@ -931,10 +933,11 @@ class EventBacktester(ABC):
 
                         # Add quantity annotations for sell orders
                         for idx, row in sell_orders.iterrows():
-                            ax.annotate(f"{row['quantity']:.0f}",
-                                        (idx, row['price']),
-                                        xytext=(5, -15), textcoords='offset points',
-                                        fontsize=8, color='red', weight='bold')
+                            if show_quantity:
+                                ax.annotate(f"{row['quantity']:.0f}",
+                                            (idx, row['price']),
+                                            xytext=(5, -15), textcoords='offset points',
+                                            fontsize=8, color='red', weight='bold')
 
                 # Format the subplot
                 ax.set_title(

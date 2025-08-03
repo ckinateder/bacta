@@ -70,6 +70,15 @@ backtester = EventBacktester(
 )
 ```
 
+| Parameter | Explanation |
+| -| -|
+| `active_symbols`| symbols that can be traded with the backtester|
+| `cash` |  cash to start with |
+| `allow_short`| allow shorting assets |
+| `allow_overdraft`| allow overdrafting the bank. if this is false, when a user places an order that would cause an overdraft, the backtester will attempt to reduce the order to be purchaseable with the currently available funds |
+| `min_trade_value` | minimum trade value to submit |
+| `market_hours_only` | only place trades during market hours and on business days |
+
 #### Required Methods to Implement
 
 **1. `generate_order(bars: pd.DataFrame, index: pd.Timestamp) -> Order`**
@@ -103,7 +112,7 @@ def generate_order(self, bars: pd.DataFrame, index: pd.Timestamp) -> Order:
 
 **2. `update_step(bars: pd.DataFrame, index: pd.Timestamp)`**
 - **Purpose**: Update strategy state, indicators, or other variables
-- **Input**: Full bar history and current timestamp
+- **Input**: Full bar history (including training data if provided) and current timestamp
 - **Called**: Before `generate_order` for each bar
 
 ```python
@@ -114,8 +123,8 @@ def update_step(self, bars: pd.DataFrame, index: pd.Timestamp):
 ```
 
 **3. `precompute_step(bars: pd.DataFrame)` (Optional)**
-- **Purpose**: Precompute indicators or setup strategy state using training data
-- **Input**: Training bar data
+- **Purpose**: Precompute indicators or setup strategy state using training data. This should seamlessly transition the backtester into the test data without any missing time steps. For example, a strategy may rely on lagged indicators or need to have a model trained on training data. This enables the backtester to handle a reliance on historical data for test data.
+- **Input**: Training bar data.
 - **Called**: Once during `load_train_bars()`
 
 ```python
@@ -202,14 +211,14 @@ The framework calculates comprehensive performance metrics:
 
 An example performance analysis output:
 ```
-trading_period_start       2025-06-04 14:00:00-04:00
-trading_period_end         2025-07-31 16:00:00-04:00
-return_on_investment                        1.107842
+trading_period_start       2025-06-05 11:00:00-04:00
+trading_period_end         2025-08-01 16:00:00-04:00
+return_on_investment                        1.120285
 max_drawdown_percentage                          0.0
 start_portfolio_value                         2000.0
-end_portfolio_value                        2215.6849
-win_rate                                    0.793103
-buy_and_hold_return                         1.039722
+end_portfolio_value                        2240.5709
+win_rate                                    0.839506
+buy_and_hold_return                         1.063721
 ```
 
 ### Plots
@@ -223,27 +232,6 @@ The framework includes a number of plotting methods for visualizing the performa
 ![Equity Curve](img/DUK_NRG_Keltner_Strategy_Equity_Curve.png)
 ![Performance Analysis](img/DUK_NRG_Keltner_Strategy_Performance.png)
 ![Trade History](img/DUK_NRG_Keltner_Strategy_Trades.png)
-
-### Risk Management Features
-
-- **Position Sizing**: Automatic quantity adjustment based on available cash
-- **Short Selling Control**: Optional restriction on short positions
-- **Overdraft Protection**: Prevent negative cash balances
-- **Minimum Trade Size**: Skip trades below threshold
-- **Market Hours Filtering**: Optional restriction to market hours only
-
-### Advanced Features
-
-#### Walk-Forward Optimization
-The framework includes a `WalkForwardBacktester` class for implementing walk-forward optimization strategies (currently under development). NOT YET IMPLEMENTED.
-
-#### Market Hours Handling
-Built-in support for market hours detection and optional trading restrictions during non-market hours.
-
-#### Flexible Order Management
-- Automatic position closing at end of backtest
-- Support for partial fills and position adjustments
-- Comprehensive trade history tracking
 
 ## Examples
 
@@ -273,18 +261,9 @@ pip install -e .
 
 ### Tests
 
-Run all tests with:
+Make sure all tests pass before making a PR. Run all tests with:
 ```bash
 python -m unittest discover tests
-```
-
-### Uploading to PyPI
-
-[To upload the package to PyPI](https://packaging.python.org/en/latest/tutorials/packaging-projects/), run the following commands to build and upload the package. You will need to have a [PyPI account](https://pypi.org/account/register/).
-
-```bash
-python -m build
-twine upload dist/*
 ```
 
 
