@@ -525,8 +525,8 @@ class TestEventBacktesterIntegration(unittest.TestCase):
         self.assertGreater(len(state_history), 0)
 
     def test_get_win_rate(self):
-        """Test getting win rate."""
-        # case 1
+        """Test getting win rate for long trades only (original functionality)."""
+        # case 1: Traditional long trades (LONG -> SHORT)
         self.backtester.initialize_bank()
         orders = [
             Order("AAPL", Position.LONG, 20.0, 1),
@@ -557,8 +557,7 @@ class TestEventBacktesterIntegration(unittest.TestCase):
             exits, exits_should_be, check_exact=False)
         self.assertEqual(win_rate, 2/3)
 
-        # case 2
-
+        # case 2: More complex long trades
         self.backtester.initialize_bank()
         orders = [
             Order("AAPL", Position.LONG, 20.0, 1),
@@ -588,7 +587,7 @@ class TestEventBacktesterIntegration(unittest.TestCase):
             exits, exits_should_be, check_exact=False)
         self.assertEqual(win_rate, 2/3)
 
-        # case 3, multiple symbols
+        # case 3: Multiple symbols
         self.backtester.initialize_bank(cash=10000)
         orders = [
             Order("AAPL", Position.LONG, 20.0, 1),
@@ -655,6 +654,228 @@ class TestEventBacktesterIntegration(unittest.TestCase):
         pd.testing.assert_frame_equal(
             exits, exits_should_be, check_exact=False)
         self.assertEqual(win_rate, 1)
+
+    def test_get_win_rate_short_trades(self):
+        """Test getting win rate for short trades (SHORT -> LONG)."""
+        # case 1: Pure short trades (SHORT -> LONG)
+        self.backtester.initialize_bank()
+        orders = [
+            Order("AAPL", Position.SHORT, 25.0, 1),  # Sell high
+            Order("AAPL", Position.SHORT, 24.0, 2),  # Sell high
+            Order("AAPL", Position.SHORT, 30.0, 1),  # Sell high
+            Order("AAPL", Position.LONG, 20.0, 1),   # Buy low
+            Order("AAPL", Position.LONG, 22.0, 3),   # Buy low
+        ]
+
+        for i in range(len(orders)):
+            self.backtester._place_order(orders[i], pd.Timestamp(
+                2024, 1, 1, 10, 0, tz="America/New_York") + timedelta(hours=i))
+
+        win_rate, exits = self.backtester.get_win_rate(
+            percentage_threshold=0.0, return_net_profits=True)
+
+        exits_should_be = pd.DataFrame({
+            "symbol": ["AAPL", "AAPL", "AAPL"],
+            "entry_price": [25.0, 24.0, 30.0],
+            "exit_price": [20.0, 22.0, 22.0],
+            "quantity": [1.0, 2.0, 1.0],
+            "net_profit_dollars": [5.0, 4.0, 8.0],
+            "net_profit_percentage": [0.2, 0.083333, 0.266667],
+            "win": [True, True, True]
+        }).astype({"symbol": "string", "win": "boolean"})
+
+        pd.testing.assert_frame_equal(
+            exits, exits_should_be, check_exact=False)
+        self.assertEqual(win_rate, 1.0)  # All short trades profitable
+
+        # case 2: Mixed short trades with losses
+        self.backtester.initialize_bank()
+        orders = [
+            Order("AAPL", Position.SHORT, 25.0, 1),  # Sell high
+            Order("AAPL", Position.SHORT, 24.0, 2),  # Sell high
+            Order("AAPL", Position.SHORT, 20.0, 1),  # Sell low (will lose)
+            Order("AAPL", Position.LONG, 22.0, 3),   # Buy higher
+            Order("AAPL", Position.LONG, 18.0, 1),   # Buy low
+        ]
+
+        for i in range(len(orders)):
+            self.backtester._place_order(orders[i], pd.Timestamp(
+                2024, 1, 1, 10, 0, tz="America/New_York") + timedelta(hours=i))
+
+        win_rate, exits = self.backtester.get_win_rate(
+            percentage_threshold=0.0, return_net_profits=True)
+
+        exits_should_be = pd.DataFrame({
+            "symbol": ["AAPL", "AAPL", "AAPL"],
+            "entry_price": [25.0, 24.0, 20.0],
+            "exit_price": [22.0, 22.0, 18.0],
+            "quantity": [1.0, 2.0, 1.0],
+            "net_profit_dollars": [3.0, 4.0, 2.0],
+            "net_profit_percentage": [0.12, 0.083333, 0.1],
+            "win": [True, True, True]
+        }).astype({"symbol": "string", "win": "boolean"})
+
+        pd.testing.assert_frame_equal(
+            exits, exits_should_be, check_exact=False)
+        self.assertEqual(win_rate, 1.0)  # All 3 trades profitable
+
+    def test_get_win_rate_mixed_trades(self):
+        """Test getting win rate for mixed long and short trades."""
+        # case 1: Mixed long and short trades
+        self.backtester.initialize_bank()
+        orders = [
+            # Long trades
+            Order("AAPL", Position.LONG, 20.0, 1),
+            Order("AAPL", Position.LONG, 21.0, 1),
+            # Short trades
+            Order("AAPL", Position.SHORT, 25.0, 1),
+            Order("AAPL", Position.SHORT, 24.0, 1),
+            # Closing orders
+            Order("AAPL", Position.SHORT, 22.0, 2),  # Close long positions
+            Order("AAPL", Position.LONG, 18.0, 2),   # Close short positions
+        ]
+
+        for i in range(len(orders)):
+            self.backtester._place_order(orders[i], pd.Timestamp(
+                2024, 1, 1, 10, 0, tz="America/New_York") + timedelta(hours=i))
+
+        win_rate, exits = self.backtester.get_win_rate(
+            percentage_threshold=0.0, return_net_profits=True)
+
+        # Expected: 3 trades based on chronological matching
+        exits_should_be = pd.DataFrame({
+            "symbol": ["AAPL", "AAPL", "AAPL"],
+            "entry_price": [20.0, 21.0, 22.0],
+            "exit_price": [25.0, 24.0, 18.0],
+            "quantity": [1.0, 1.0, 2.0],
+            "net_profit_dollars": [5.0, 3.0, 8.0],
+            "net_profit_percentage": [0.25, 0.142857, 0.181818],
+            "win": [True, True, True]
+        }).astype({"symbol": "string", "win": "boolean"})
+
+        pd.testing.assert_frame_equal(
+            exits, exits_should_be, check_exact=False)
+        self.assertEqual(win_rate, 1.0)  # All trades profitable
+
+        # case 2: Complex mixed scenario with multiple symbols
+        self.backtester.initialize_bank(cash=10000)
+        orders = [
+            # AAPL trades
+            Order("AAPL", Position.LONG, 20.0, 1),
+            Order("AAPL", Position.SHORT, 25.0, 1),
+            Order("AAPL", Position.SHORT, 24.0, 1),
+            Order("AAPL", Position.LONG, 18.0, 2),
+            # GOOGL trades
+            Order("GOOGL", Position.SHORT, 30.0, 1),
+            Order("GOOGL", Position.LONG, 25.0, 1),
+            Order("GOOGL", Position.LONG, 20.0, 1),
+            Order("GOOGL", Position.SHORT, 22.0, 2),
+        ]
+
+        for i in range(len(orders)):
+            self.backtester._place_order(orders[i], pd.Timestamp(
+                2024, 1, 1, 10, 0, tz="America/New_York") + timedelta(hours=i))
+
+        win_rate, exits = self.backtester.get_win_rate(
+            percentage_threshold=0.0, return_net_profits=True)
+
+        # Expected: 4 completed trades (2 per symbol)
+        self.assertEqual(len(exits), 4)
+        self.assertEqual(win_rate, 1.0)  # All trades should be profitable
+
+        # Verify AAPL trades
+        aapl_trades = exits[exits["symbol"] == "AAPL"]
+        self.assertEqual(len(aapl_trades), 2)
+
+        # Verify GOOGL trades
+        googl_trades = exits[exits["symbol"] == "GOOGL"]
+        self.assertEqual(len(googl_trades), 2)
+
+    def test_get_win_rate_edge_cases(self):
+        """Test edge cases for win rate calculation."""
+        # case 1: No trades
+        self.backtester.initialize_bank()
+        win_rate = self.backtester.get_win_rate()
+        self.assertEqual(win_rate, 0.0)
+
+        # case 2: Only long positions (no exits)
+        self.backtester.initialize_bank()
+        orders = [
+            Order("AAPL", Position.LONG, 20.0, 1),
+            Order("AAPL", Position.LONG, 21.0, 1),
+        ]
+        for i in range(len(orders)):
+            self.backtester._place_order(orders[i], pd.Timestamp(
+                2024, 1, 1, 10, 0, tz="America/New_York") + timedelta(hours=i))
+
+        win_rate = self.backtester.get_win_rate()
+        self.assertEqual(win_rate, 0.0)  # No completed trades
+
+        # case 3: Only short positions (no exits)
+        self.backtester.initialize_bank()
+        orders = [
+            Order("AAPL", Position.SHORT, 25.0, 1),
+            Order("AAPL", Position.SHORT, 24.0, 1),
+        ]
+        for i in range(len(orders)):
+            self.backtester._place_order(orders[i], pd.Timestamp(
+                2024, 1, 1, 10, 0, tz="America/New_York") + timedelta(hours=i))
+
+        win_rate = self.backtester.get_win_rate()
+        self.assertEqual(win_rate, 0.0)  # No completed trades
+
+        # case 4: Uneven quantities
+        self.backtester.initialize_bank()
+        orders = [
+            Order("AAPL", Position.LONG, 20.0, 3),   # Buy 3
+            Order("AAPL", Position.SHORT, 22.0, 1),  # Sell 1
+            Order("AAPL", Position.SHORT, 24.0, 2),  # Sell 2 (closes position)
+        ]
+        for i in range(len(orders)):
+            self.backtester._place_order(orders[i], pd.Timestamp(
+                2024, 1, 1, 10, 0, tz="America/New_York") + timedelta(hours=i))
+
+        win_rate, exits = self.backtester.get_win_rate(
+            percentage_threshold=0.0, return_net_profits=True)
+
+        # Should have 2 trades: 1 share at 22, 2 shares at 24
+        self.assertEqual(len(exits), 2)
+        self.assertEqual(win_rate, 1.0)  # Both trades profitable
+
+    def test_get_win_rate_with_threshold(self):
+        """Test win rate calculation with different thresholds."""
+        # Create trades with known profit percentages
+        self.backtester.initialize_bank()
+        orders = [
+            # Long trades with different profit levels
+            Order("AAPL", Position.LONG, 100.0, 1),
+            Order("AAPL", Position.SHORT, 110.0, 1),  # 10% profit
+            Order("AAPL", Position.LONG, 100.0, 1),
+            Order("AAPL", Position.SHORT, 105.0, 1),  # 5% profit
+            Order("AAPL", Position.LONG, 100.0, 1),
+            Order("AAPL", Position.SHORT, 95.0, 1),   # 5% loss
+            # Short trades with different profit levels
+            Order("AAPL", Position.SHORT, 110.0, 1),
+            Order("AAPL", Position.LONG, 100.0, 1),   # 10% profit
+            Order("AAPL", Position.SHORT, 105.0, 1),
+            Order("AAPL", Position.LONG, 100.0, 1),   # 5% profit
+        ]
+
+        for i in range(len(orders)):
+            self.backtester._place_order(orders[i], pd.Timestamp(
+                2024, 1, 1, 10, 0, tz="America/New_York") + timedelta(hours=i))
+
+        # Test with 0% threshold (all profitable trades are wins)
+        win_rate_0 = self.backtester.get_win_rate(percentage_threshold=0.0)
+        self.assertEqual(win_rate_0, 4/5)  # 4 out of 5 trades are profitable
+
+        # Test with 5% threshold (only trades with >5% profit are wins)
+        win_rate_5 = self.backtester.get_win_rate(percentage_threshold=0.05)
+        self.assertEqual(win_rate_5, 2/5)  # Only 2 trades have >5% profit
+
+        # Test with 10% threshold (only trades with >10% profit are wins)
+        win_rate_10 = self.backtester.get_win_rate(percentage_threshold=0.10)
+        self.assertEqual(win_rate_10, 0/5)  # No trades have >10% profit
 
 
 class TestEventBacktesterEdgeCases(unittest.TestCase):
@@ -1042,7 +1263,7 @@ class TestEventBacktesterAdvancedFeatures(unittest.TestCase):
     def test_order_string_representation(self):
         """Test Order.__str__ method."""
         order = Order("AAPL", Position.LONG, 100.0, 2)
-        expected_str = "LONG 2 of AAPL at 100.0"
+        expected_str = "LONG 2 AAPL @ $100.000"
         self.assertEqual(str(order), expected_str)
 
     def test_position_enum_values(self):
@@ -1391,7 +1612,7 @@ class TestEventBacktesterSharpeRatio(unittest.TestCase):
             self.backtester.calculate_sharpe_ratio()
 
     def test_sharpe_ratio_different_periods(self):
-        dates = pd.date_range('2024-01-01', periods=12, freq='M')
+        dates = pd.date_range('2024-01-01', periods=12, freq='ME')
         portfolio_values = [1000]
         for i in range(1, 13):
             noise = np.random.normal(0, 0.02)

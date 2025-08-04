@@ -14,6 +14,15 @@ from utilities.plotting import DEFAULT_FIGSIZE, plt_show
 # Get logger for this module
 logger = get_logger()
 
+# get version from pyproject.toml
+with open("pyproject.toml", "r") as f:
+    for line in f:
+        if "version" in line:
+            version = line.split("=")[1].strip().strip('"')
+            break
+
+VERSION = version
+
 
 class Position(Enum):
     LONG = 1
@@ -48,7 +57,7 @@ class Order:
     def __str__(self) -> str:
         """String representation of the order.
         """
-        return f"{self.position.name} {self.quantity} {self.symbol} @ {self.price:<.3f}"
+        return f"{self.position.name} {self.quantity} {self.symbol} @ ${self.price:<.3f}"
 
 
 class EventBacktester(ABC):
@@ -103,7 +112,7 @@ class EventBacktester(ABC):
             allow_short (bool, optional): Whether to allow short positions. If False, will not allow the backtester to shortsell. Defaults to True.
             allow_overdraft (bool, optional): Whether to allow overdraft in the bank. If False, will not allow the backtester to go into negative cash. Defaults to False.
             min_trade_value (float, optional): The minimum dollar value of a trade. If the order value is less than this, the order will be skipped. Defaults to 1.0.
-            market_hours_only (bool, optional): Whether to only place orders during market hours. Defaults to True. 
+            market_hours_only (bool, optional): Whether to only place orders during market hours. Defaults to True.
         """
         logger.debug(
             f"Initializing backtester with active symbols: {active_symbols}, cash: {cash}, allow_short: {allow_short}, allow_overdraft: {allow_overdraft}, min_trade_value: {min_trade_value}, market_hours_only: {market_hours_only}")
@@ -402,8 +411,14 @@ class EventBacktester(ABC):
         max_drawdown_percentage = max_drawdown.min()
 
         # calculate win rate
-        win_rate = self.get_win_rate()
-
+        win_rate, net_profits = self.get_win_rate(return_net_profits=True)
+        avg_trade_return = net_profits["net_profit_percentage"].mean()
+        largest_win = net_profits["net_profit_dollars"].max()
+        largest_loss = net_profits["net_profit_dollars"].min()
+        max_consecutive_wins = net_profits["win"].astype(
+            int).diff().ne(0).cumsum().max()
+        max_consecutive_losses = net_profits["win"].astype(
+            int).diff().ne(0).cumsum().min()
         # compare to buy and hold (prices)
         all_cum_returns = self.get_buy_and_hold_returns()
         combined_returns = all_cum_returns.mean(axis=1)
@@ -415,15 +430,27 @@ class EventBacktester(ABC):
             sharpe_ratio = float('nan')
 
         return pd.Series({
+            "version": VERSION,
             "trading_period_start": state_history.index[1],
             "trading_period_end": state_history.index[-1],
+            "trading_period_length": state_history.index[-1] - state_history.index[1],
             "return_on_investment": return_on_investment,
             "max_drawdown_percentage": max_drawdown_percentage,
             "start_portfolio_value": start_portfolio_value,
             "end_portfolio_value": end_portfolio_value,
-            "win_rate": win_rate,
+            "min_portfolio_value": state_history["portfolio_value"].min().round(2),
+            "max_portfolio_value": state_history["portfolio_value"].max().round(2),
             "buy_and_hold_return": combined_returns.iloc[-1],
-            "sharpe_ratio": sharpe_ratio
+            "sharpe_ratio": sharpe_ratio,
+            "win_rate": win_rate,
+            "number_of_orders": self.order_history.shape[0],
+            "number_of_winning_trades": len(net_profits[net_profits["win"]]),
+            "number_of_losing_trades": len(net_profits[~net_profits["win"]]),
+            "avg_trade_return": avg_trade_return,
+            "largest_win": round(largest_win, 2),
+            "largest_loss": round(largest_loss, 2),
+            "max_consecutive_wins": max_consecutive_wins,
+            "max_consecutive_losses": max_consecutive_losses
         })
 
     def calculate_sharpe_ratio(self, risk_free_rate: float = 0.0, periods_per_year: int = 252) -> float:
@@ -494,6 +521,10 @@ class EventBacktester(ABC):
     def get_win_rate(self, percentage_threshold: float = 0.0, return_net_profits: bool = False) -> tuple[float, pd.DataFrame]:
         """Get the win rate of the backtest. This is done by calculating the net profit for each open position.
 
+        This function handles both:
+        1. Long trades: Buy low, sell high (LONG -> SHORT)
+        2. Short trades: Sell high, buy low (SHORT -> LONG)
+
         Example:
 
         ```
@@ -539,95 +570,105 @@ class EventBacktester(ABC):
         net_pointer = 0
 
         for symbol in self.active_symbols:
-            # pointers
-            entry_pointer = 0
-            exit_pointer = 0
+            # Get all orders for this symbol and sort by timestamp
+            symbol_orders = order_history[order_history["symbol"] == symbol].copy(
+            )
+            symbol_orders = symbol_orders.sort_index()  # Sort by timestamp
 
-            # get all long and short positions
-            all_long_positions = order_history[(order_history["symbol"] == symbol) & (
-                order_history["position"] == Position.LONG.value)]
-            all_short_positions = order_history[(order_history["symbol"] == symbol) & (
-                order_history["position"] == Position.SHORT.value)]
+            # Separate long and short orders
+            long_orders = symbol_orders[symbol_orders["position"]
+                                        == Position.LONG.value].copy()
+            short_orders = symbol_orders[symbol_orders["position"]
+                                         == Position.SHORT.value].copy()
 
-            while exit_pointer < len(all_short_positions) and entry_pointer < len(all_long_positions):
-                # get index and row of pointers
-                entry_index = all_long_positions.index[entry_pointer]
-                entry_row = all_long_positions.iloc[entry_pointer]
-                exit_index = all_short_positions.index[exit_pointer]
-                exit_row = all_short_positions.iloc[exit_pointer]
+            # Process trades by matching orders chronologically
+            long_pointer = 0
+            short_pointer = 0
 
-                net_profits.loc[net_pointer, "symbol"] = entry_row["symbol"]
-                net_profits.loc[net_pointer,
-                                "entry_price"] = entry_row["price"]
-                net_profits.loc[net_pointer, "exit_price"] = exit_row["price"]
+            while long_pointer < len(long_orders) and short_pointer < len(short_orders):
+                long_order = long_orders.iloc[long_pointer]
+                short_order = short_orders.iloc[short_pointer]
+                long_index = long_orders.index[long_pointer]
+                short_index = short_orders.index[short_pointer]
 
-                if exit_row["quantity"] > entry_row["quantity"]:
-                    # exit row has more quantity than entry row
-                    # add the net profit to the net_profits dataframe
-                    # zero out the entry row
-                    # DON'T increment the exit pointer
-                    # increment the net pointer
-                    # increment the entry pointer
-                    swing_quantity = entry_row["quantity"]
-                    net_profits.loc[net_pointer, "net_profit_dollars"] = (
-                        exit_row["price"] - entry_row["price"]) * swing_quantity
-                    net_profits.loc[net_pointer, "net_profit_percentage"] = (
-                        exit_row["price"] - entry_row["price"]) / entry_row["price"]
-                    net_profits.loc[net_pointer, "quantity"] = swing_quantity
+                # Determine trade direction based on chronological order
+                if long_index < short_index:
+                    # LONG -> SHORT trade (buy low, sell high)
+                    entry_price = long_order["price"]
+                    exit_price = short_order["price"]
+                    entry_quantity = long_order["quantity"]
+                    exit_quantity = short_order["quantity"]
 
-                    net_profits.loc[net_pointer, "win"] = net_profits.loc[net_pointer,
-                                                                          "net_profit_percentage"] > percentage_threshold
+                    # Calculate trade quantity (minimum of entry and exit)
+                    trade_quantity = min(entry_quantity, exit_quantity)
 
-                    all_short_positions.loc[exit_index,
-                                            "quantity"] -= swing_quantity
-                    all_long_positions.loc[entry_index,
-                                           "quantity"] -= swing_quantity
-                    entry_pointer += 1
-                elif exit_row["quantity"] < entry_row["quantity"]:
-                    # entry row has more quantity than exit row
-                    # add the net profit to the net_profits dataframe
-                    # zero out the exit row
-                    # DON'T increment the entry pointer
-                    # increment the net pointer
-                    # increment the exit pointer
-                    swing_quantity = exit_row["quantity"]
-                    net_profits.loc[net_pointer, "net_profit_dollars"] = (
-                        exit_row["price"] - entry_row["price"]) * swing_quantity
-                    net_profits.loc[net_pointer, "net_profit_percentage"] = (
-                        exit_row["price"] - entry_row["price"]) / entry_row["price"]
-                    net_profits.loc[net_pointer, "quantity"] = swing_quantity
-                    net_profits.loc[net_pointer, "win"] = net_profits.loc[net_pointer,
-                                                                          "net_profit_percentage"] > percentage_threshold
+                    # Calculate profit
+                    net_profit_dollars = (
+                        exit_price - entry_price) * trade_quantity
+                    net_profit_percentage = (
+                        exit_price - entry_price) / entry_price
 
-                    all_long_positions.loc[entry_index,
-                                           "quantity"] -= swing_quantity
-                    all_short_positions.loc[exit_index,
-                                            "quantity"] -= swing_quantity
-                    exit_pointer += 1
+                    # Record the trade
+                    net_profits.loc[net_pointer, "symbol"] = symbol
+                    net_profits.loc[net_pointer, "entry_price"] = entry_price
+                    net_profits.loc[net_pointer, "exit_price"] = exit_price
+                    net_profits.loc[net_pointer, "quantity"] = trade_quantity
+                    net_profits.loc[net_pointer,
+                                    "net_profit_dollars"] = net_profit_dollars
+                    net_profits.loc[net_pointer,
+                                    "net_profit_percentage"] = net_profit_percentage
+                    net_profits.loc[net_pointer,
+                                    "win"] = net_profit_percentage > percentage_threshold
+
+                    # Update remaining quantities
+                    long_orders.loc[long_index, "quantity"] -= trade_quantity
+                    short_orders.loc[short_index, "quantity"] -= trade_quantity
+
+                    # Move pointers
+                    if long_orders.loc[long_index, "quantity"] <= 0:
+                        long_pointer += 1
+                    if short_orders.loc[short_index, "quantity"] <= 0:
+                        short_pointer += 1
+
                 else:
-                    # exit row has the same quantity as entry row
-                    # add the net profit to the net_profits dataframe
-                    # zero out the entry and exit rows
-                    # increment the net pointer
-                    # increment the entry and exit pointers
-                    swing_quantity = exit_row["quantity"]
-                    net_profits.loc[net_pointer, "net_profit_dollars"] = (
-                        exit_row["price"] - entry_row["price"]) * swing_quantity
-                    net_profits.loc[net_pointer, "net_profit_percentage"] = (
-                        exit_row["price"] - entry_row["price"]) / entry_row["price"]
-                    net_profits.loc[net_pointer, "quantity"] = swing_quantity
-                    net_profits.loc[net_pointer, "win"] = net_profits.loc[net_pointer,
-                                                                          "net_profit_percentage"] > percentage_threshold
+                    # SHORT -> LONG trade (sell high, buy low)
+                    entry_price = short_order["price"]
+                    exit_price = long_order["price"]
+                    entry_quantity = short_order["quantity"]
+                    exit_quantity = long_order["quantity"]
 
-                    all_long_positions.loc[entry_index,
-                                           "quantity"] = 0
-                    all_short_positions.loc[exit_index,
-                                            "quantity"] = 0
-                    entry_pointer += 1
-                    exit_pointer += 1
+                    # Calculate trade quantity (minimum of entry and exit)
+                    trade_quantity = min(entry_quantity, exit_quantity)
+
+                    # Calculate profit
+                    net_profit_dollars = (
+                        entry_price - exit_price) * trade_quantity
+                    net_profit_percentage = (
+                        entry_price - exit_price) / entry_price
+
+                    # Record the trade
+                    net_profits.loc[net_pointer, "symbol"] = symbol
+                    net_profits.loc[net_pointer, "entry_price"] = entry_price
+                    net_profits.loc[net_pointer, "exit_price"] = exit_price
+                    net_profits.loc[net_pointer, "quantity"] = trade_quantity
+                    net_profits.loc[net_pointer,
+                                    "net_profit_dollars"] = net_profit_dollars
+                    net_profits.loc[net_pointer,
+                                    "net_profit_percentage"] = net_profit_percentage
+                    net_profits.loc[net_pointer,
+                                    "win"] = net_profit_percentage > percentage_threshold
+
+                    # Update remaining quantities
+                    short_orders.loc[short_index, "quantity"] -= trade_quantity
+                    long_orders.loc[long_index, "quantity"] -= trade_quantity
+
+                    # Move pointers
+                    if short_orders.loc[short_index, "quantity"] <= 0:
+                        short_pointer += 1
+                    if long_orders.loc[long_index, "quantity"] <= 0:
+                        long_pointer += 1
 
                 net_pointer += 1
-            net_pointer += 1
 
         # reset index
         net_profits = net_profits.reset_index(drop=True)
@@ -638,8 +679,6 @@ class EventBacktester(ABC):
         else:
             win_rate = len([profit for profit in net_profits["win"]
                            if profit]) / len(net_profits)
-
-        # convert d
 
         if return_net_profits:
             return win_rate, net_profits

@@ -5,20 +5,25 @@ import os
 
 
 def create_logger(name: str = "bacta", level: int = logging.INFO) -> logging.Logger:
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.DEBUG)
-
-    # Create formatter
-    formatter = logging.Formatter(
-        '[%(asctime)s][%(levelname)s] %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    console_handler.setFormatter(formatter)
-
-    # Add handler to logger
+    # Get the logger (this will create it if it doesn't exist)
     logger = logging.getLogger(name)
-    logger.setLevel(level)
-    logger.addHandler(console_handler)
+
+    # Only add handler if the logger doesn't already have handlers
+    if not logger.handlers:
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.DEBUG)
+
+        # Create formatter
+        formatter = logging.Formatter(
+            '[%(asctime)s][%(levelname)s] %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+        console_handler.setFormatter(formatter)
+
+        # Add handler to logger
+        logger.setLevel(level)
+        logger.addHandler(console_handler)
+
     return logger
 
 
@@ -44,21 +49,26 @@ def get_log_level() -> int:
         return logging.INFO
 
 
-def get_logger(level: int = get_log_level()) -> logging.Logger:
+def get_logger(name: str = "bacta", level: int = get_log_level()) -> logging.Logger:
     """
     Get a logger instance. Creates a new one if it doesn't exist.
 
     Args:
-        name: Name of the logger
+        name: Name of the logger (default: "bacta")
         level: Logging level (default: environment variable LOG_LEVEL)
 
     Returns:
-        CustomLogger instance
+        Logger instance
     """
-    global _logger_instance
-    if _logger_instance is None:
-        _logger_instance = create_logger("bacta", level)
-    return _logger_instance
+    # For the default logger name, use the global instance pattern
+    if name == "bacta":
+        global _logger_instance
+        if _logger_instance is None:
+            _logger_instance = create_logger("bacta", level)
+        return _logger_instance
+    else:
+        # For other names, create/get the logger directly
+        return create_logger(name, level)
 
 
 def set_log_level(level: int = get_log_level()) -> None:
@@ -84,4 +94,4 @@ def set_log_level(level: int = get_log_level()) -> None:
             handler.setLevel(level)
     else:
         # If no logger instance exists yet, create one with the specified level
-        _logger_instance = create_logger(level=level)
+        _logger_instance = create_logger("bacta", level=level)

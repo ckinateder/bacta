@@ -144,11 +144,14 @@ def precompute_step(self, bars: pd.DataFrame):
 - `analyze_performance()`: Calculate performance metrics
 - `get_win_rate(threshold=0.0)`: Calculate win rate and trade analysis
 - `get_buy_and_hold_returns()`: Calculate buy-and-hold benchmark returns
+- `calculate_sharpe_ratio(risk_free_rate, periods_per_year)`: Calculate sharpe ratio
 
 **Visualization Methods:**
 - `plot_equity_curve()`: Portfolio value over time
 - `plot_performance_analysis()`: Comprehensive performance dashboard
 - `plot_trade_history()`: Price charts with trade markers
+
+Other methods are included - any class method without a `_` prefix is appropriate to directly call.
 
 ### Workflow
 

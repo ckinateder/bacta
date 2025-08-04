@@ -16,7 +16,7 @@ from src import *
 from src.backtester import EventBacktester, Order, Position
 from src.utilities import dash, get_logger, set_log_level
 
-set_log_level(logging.DEBUG)
+set_log_level(logging.INFO)
 
 
 class KeltnerChannelBacktester(EventBacktester):
@@ -104,7 +104,7 @@ if __name__ == "__main__":
     print(backtester.analyze_performance())
 
     # Plot the results
-    print(dash("plotting..."))
+    print("plotting...")
     backtester.plot_equity_curve(
         title="_".join(symbols)+" Keltner Strategy Equity Curve")
     backtester.plot_performance_analysis(
