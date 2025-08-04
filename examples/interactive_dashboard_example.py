@@ -66,13 +66,10 @@ class KeltnerChannelBacktester(EventBacktester):
                 return Order(symbol, Position.LONG, close_prices[symbol], 1)
 
 
-def run_backtest_and_show_dashboard():
-    """
-    Run a backtest and then launch the interactive Streamlit dashboard.
-    """
-    symbols = ["DUK", "NRG"]
+if __name__ == "__main__":
 
     # download the bars
+    symbols = ["DUK", "NRG"]
     bars = download_bars(symbols, start_date=datetime(
         2024, 1, 1), end_date=datetime.now() - timedelta(minutes=15), timeframe=TimeFrame.Hour)
 
@@ -112,10 +109,5 @@ def run_backtest_and_show_dashboard():
     st.write(
         "This dashboard shows the results of the Keltner Channel strategy backtest.")
 
-    # Display the interactive dashboard
     backtester.plot_interactive_dashboard(
         "Keltner Channel Strategy Performance")
-
-
-if __name__ == "__main__":
-    run_backtest_and_show_dashboard()

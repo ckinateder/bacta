@@ -1156,72 +1156,9 @@ class EventBacktester(ABC):
 
         # Create tabs for different views
         tab1, tab2, tab3 = st.tabs(
-            ["Equity Curve", "Performance Analysis", "Trade History"])
+            ["Performance Analysis", "Equity Curve", "Trade History"])
 
         with tab1:
-            st.subheader("Equity Curve")
-
-            # Create equity curve plot
-            fig = go.Figure()
-
-            # Portfolio value
-            fig.add_trace(go.Scatter(
-                x=portfolio_values_filtered.index,
-                y=portfolio_values_filtered.values,
-                mode='lines',
-                name='Portfolio Value',
-                line=dict(color='blue', width=2)
-            ))
-
-            # Initial value reference line
-            initial_value = portfolio_values_filtered.iloc[0]
-            fig.add_hline(y=initial_value, line_dash="dash", line_color="red",
-                          annotation_text=f"Initial Value: ${initial_value:.2f}")
-
-            # Add buy and hold comparison if available
-            if buy_hold_returns is not None and not buy_hold_returns.empty:
-                combined_returns = buy_hold_returns.mean(axis=1)
-                # Scale buy and hold to same starting value
-                scaled_bh = combined_returns * initial_value
-                fig.add_trace(go.Scatter(
-                    x=combined_returns.index,
-                    y=scaled_bh.values,
-                    mode='lines',
-                    name='Buy & Hold (scaled)',
-                    line=dict(color='orange', width=2)
-                ))
-
-            fig.update_layout(
-                title="Portfolio Value Over Time",
-                xaxis_title="Date",
-                yaxis_title="Portfolio Value ($)",
-                hovermode='x unified',
-                height=500
-            )
-
-            st.plotly_chart(fig, use_container_width=True)
-
-            # Performance metrics
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                final_value = portfolio_values_filtered.iloc[-1]
-                total_return = (
-                    (final_value - initial_value) / initial_value) * 100
-                st.metric("Total Return", f"{total_return:.2f}%")
-            with col2:
-                max_drawdown = drawdown.min()
-                st.metric("Max Drawdown", f"{max_drawdown:.2f}%")
-            with col3:
-                try:
-                    sharpe = self.calculate_sharpe_ratio()
-                    st.metric("Sharpe Ratio", f"{sharpe:.3f}")
-                except:
-                    st.metric("Sharpe Ratio", "N/A")
-            with col4:
-                win_rate = self.get_win_rate()
-                st.metric("Win Rate", f"{win_rate:.1%}")
-
-        with tab2:
             st.subheader("Performance Analysis")
 
             # Create subplots
@@ -1305,6 +1242,69 @@ class EventBacktester(ABC):
 
             fig.update_layout(height=800, showlegend=True, title_text=title)
             st.plotly_chart(fig, use_container_width=True)
+
+        with tab2:
+            st.subheader("Equity Curve")
+
+            # Create equity curve plot
+            fig = go.Figure()
+
+            # Portfolio value
+            fig.add_trace(go.Scatter(
+                x=portfolio_values_filtered.index,
+                y=portfolio_values_filtered.values,
+                mode='lines',
+                name='Portfolio Value',
+                line=dict(color='blue', width=2)
+            ))
+
+            # Initial value reference line
+            initial_value = portfolio_values_filtered.iloc[0]
+            fig.add_hline(y=initial_value, line_dash="dash", line_color="red",
+                          annotation_text=f"Initial Value: ${initial_value:.2f}")
+
+            # Add buy and hold comparison if available
+            if buy_hold_returns is not None and not buy_hold_returns.empty:
+                combined_returns = buy_hold_returns.mean(axis=1)
+                # Scale buy and hold to same starting value
+                scaled_bh = combined_returns * initial_value
+                fig.add_trace(go.Scatter(
+                    x=combined_returns.index,
+                    y=scaled_bh.values,
+                    mode='lines',
+                    name='Buy & Hold (scaled)',
+                    line=dict(color='orange', width=2)
+                ))
+
+            fig.update_layout(
+                title="Portfolio Value Over Time",
+                xaxis_title="Date",
+                yaxis_title="Portfolio Value ($)",
+                hovermode='x unified',
+                height=500
+            )
+
+            st.plotly_chart(fig, use_container_width=True)
+
+            # Performance metrics
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                final_value = portfolio_values_filtered.iloc[-1]
+                total_return = (
+                    (final_value - initial_value) / initial_value) * 100
+                st.metric("Total Return", f"{total_return:.2f}%")
+            with col2:
+                max_drawdown = drawdown.min()
+                st.metric("Max Drawdown", f"{max_drawdown:.2f}%")
+            with col3:
+                try:
+                    sharpe = self.calculate_sharpe_ratio()
+                    st.metric("Sharpe Ratio", f"{sharpe:.3f}")
+                except:
+                    st.metric("Sharpe Ratio", "N/A")
+            with col4:
+                win_rate = self.get_win_rate()
+                st.metric("Win Rate", f"{win_rate:.1%}")
 
         with tab3:
             st.subheader("Trade History")
