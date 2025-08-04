@@ -340,7 +340,7 @@ class EventBacktester(ABC):
                 break
 
         # iterate through the index of the bars
-        with logging_redirect_tqdm():
+        with logging_redirect_tqdm(loggers=[get_logger()]):
             for index in tqdm(timestamps[start_loc:], desc="Backtesting", leave=False, dynamic_ncols=True, total=len(timestamps[start_loc:]), position=0, disable=disable_tqdm):
                 # perform update step
                 self.update_step(full_bars, index)

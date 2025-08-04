@@ -17,7 +17,7 @@ from src import *
 from src.backtester import EventBacktester, Order, Position
 from src.utilities import dash, get_logger, set_log_level
 
-set_log_level(logging.INFO)
+set_log_level(logging.DEBUG)
 
 
 class KeltnerChannelBacktester(EventBacktester):
