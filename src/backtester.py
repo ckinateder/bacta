@@ -1104,6 +1104,293 @@ class EventBacktester(ABC):
 
         return fig
 
+    def plot_interactive_dashboard(self, title: str = "Interactive Performance Dashboard"):
+        """
+        Create an interactive Streamlit dashboard with all three plot types.
+
+        This method creates a comprehensive interactive dashboard that includes:
+        - Equity curve with zoom and pan capabilities
+        - Performance analysis with interactive subplots
+        - Trade history with interactive trade markers
+
+        Args:
+            title (str): Title for the dashboard
+        """
+        try:
+            import streamlit as st
+            import plotly.graph_objects as go
+            import plotly.express as px
+            from plotly.subplots import make_subplots
+        except ImportError:
+            logger.error(
+                "Streamlit, plotly, or plotly.express not available. Please install with: pip install streamlit plotly")
+            return None
+
+        # Get the data
+        state_history = self.get_state_history()
+        order_history = self.get_history()
+
+        if state_history.empty:
+            st.error("No state history available for plotting")
+            return None
+
+        # Filter out the initial state (index 0) for plotting
+        portfolio_values = state_history["portfolio_value"]
+        portfolio_values_filtered = portfolio_values[portfolio_values.index != 0]
+
+        if len(portfolio_values_filtered) == 0:
+            st.error("No trading data available for plotting")
+            return None
+
+        # Calculate key metrics
+        returns = portfolio_values_filtered.pct_change().dropna()
+        cumulative_returns = (1 + returns).cumprod()
+        cumulative_max = portfolio_values_filtered.cummax()
+        drawdown = ((portfolio_values_filtered -
+                    cumulative_max) / cumulative_max) * 100
+
+        # Get buy and hold returns
+        buy_hold_returns = None
+        if hasattr(self, 'test_bars') and self.test_bars is not None:
+            buy_hold_returns = self.get_buy_and_hold_returns()
+
+        # Create tabs for different views
+        tab1, tab2, tab3 = st.tabs(
+            ["Equity Curve", "Performance Analysis", "Trade History"])
+
+        with tab1:
+            st.subheader("Equity Curve")
+
+            # Create equity curve plot
+            fig = go.Figure()
+
+            # Portfolio value
+            fig.add_trace(go.Scatter(
+                x=portfolio_values_filtered.index,
+                y=portfolio_values_filtered.values,
+                mode='lines',
+                name='Portfolio Value',
+                line=dict(color='blue', width=2)
+            ))
+
+            # Initial value reference line
+            initial_value = portfolio_values_filtered.iloc[0]
+            fig.add_hline(y=initial_value, line_dash="dash", line_color="red",
+                          annotation_text=f"Initial Value: ${initial_value:.2f}")
+
+            # Add buy and hold comparison if available
+            if buy_hold_returns is not None and not buy_hold_returns.empty:
+                combined_returns = buy_hold_returns.mean(axis=1)
+                # Scale buy and hold to same starting value
+                scaled_bh = combined_returns * initial_value
+                fig.add_trace(go.Scatter(
+                    x=combined_returns.index,
+                    y=scaled_bh.values,
+                    mode='lines',
+                    name='Buy & Hold (scaled)',
+                    line=dict(color='orange', width=2)
+                ))
+
+            fig.update_layout(
+                title="Portfolio Value Over Time",
+                xaxis_title="Date",
+                yaxis_title="Portfolio Value ($)",
+                hovermode='x unified',
+                height=500
+            )
+
+            st.plotly_chart(fig, use_container_width=True)
+
+            # Performance metrics
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                final_value = portfolio_values_filtered.iloc[-1]
+                total_return = (
+                    (final_value - initial_value) / initial_value) * 100
+                st.metric("Total Return", f"{total_return:.2f}%")
+            with col2:
+                max_drawdown = drawdown.min()
+                st.metric("Max Drawdown", f"{max_drawdown:.2f}%")
+            with col3:
+                try:
+                    sharpe = self.calculate_sharpe_ratio()
+                    st.metric("Sharpe Ratio", f"{sharpe:.3f}")
+                except:
+                    st.metric("Sharpe Ratio", "N/A")
+            with col4:
+                win_rate = self.get_win_rate()
+                st.metric("Win Rate", f"{win_rate:.1%}")
+
+        with tab2:
+            st.subheader("Performance Analysis")
+
+            # Create subplots
+            fig = make_subplots(
+                rows=2, cols=3,
+                subplot_titles=("Cumulative Returns", "Drawdown", "Returns Distribution",
+                                "Symbol Prices", "Buy & Hold Returns", "Strategy vs Buy & Hold"),
+                specs=[[{"secondary_y": False}, {"secondary_y": False}, {"secondary_y": False}],
+                       [{"secondary_y": False}, {"secondary_y": False}, {"secondary_y": False}]]
+            )
+
+            # Subplot 1: Cumulative Returns
+            fig.add_trace(
+                go.Scatter(x=cumulative_returns.index, y=cumulative_returns.values,
+                           mode='lines', name='Strategy Returns', line=dict(color='green')),
+                row=1, col=1
+            )
+            fig.add_hline(y=1, line_dash="dash",
+                          line_color="red", row=1, col=1)
+
+            # Subplot 2: Drawdown
+            fig.add_trace(
+                go.Scatter(x=drawdown.index, y=drawdown.values,
+                           mode='lines', name='Drawdown', line=dict(color='red'),
+                           fill='tonexty'),
+                row=1, col=2
+            )
+
+            # Subplot 3: Returns Distribution
+            fig.add_trace(
+                go.Histogram(x=returns.values, nbinsx=50, name='Returns',
+                             marker_color='green', opacity=0.7),
+                row=1, col=3
+            )
+            fig.add_vline(x=returns.mean(), line_dash="dash", line_color="red",
+                          annotation_text=f"Mean: {returns.mean():.4f}", row=1, col=3)
+
+            # Subplot 4: Symbol Prices
+            if hasattr(self, 'test_bars') and self.test_bars is not None:
+                for symbol in self.active_symbols:
+                    if symbol in self.test_bars.index.get_level_values(0):
+                        symbol_bars = self.test_bars.xs(symbol, level=0)
+                        fig.add_trace(
+                            go.Scatter(x=symbol_bars.index, y=symbol_bars['close'],
+                                       mode='lines', name=symbol, line=dict(width=1.5)),
+                            row=2, col=1
+                        )
+
+            # Subplot 5: Buy and Hold Returns
+            if buy_hold_returns is not None and not buy_hold_returns.empty:
+                for symbol in buy_hold_returns.columns:
+                    fig.add_trace(
+                        go.Scatter(x=buy_hold_returns.index, y=buy_hold_returns[symbol],
+                                   mode='lines', name=f'{symbol} B&H', line=dict(width=1.5), opacity=0.7),
+                        row=2, col=2
+                    )
+                combined_returns = buy_hold_returns.mean(axis=1)
+                fig.add_trace(
+                    go.Scatter(x=combined_returns.index, y=combined_returns,
+                               mode='lines', name='Combined B&H', line=dict(color='black', width=2)),
+                    row=2, col=2
+                )
+                fig.add_hline(y=1, line_dash="dash",
+                              line_color="red", row=2, col=2)
+
+            # Subplot 6: Strategy vs Buy and Hold
+            fig.add_trace(
+                go.Scatter(x=cumulative_returns.index, y=cumulative_returns.values,
+                           mode='lines', name='Strategy Returns', line=dict(color='blue')),
+                row=2, col=3
+            )
+            if buy_hold_returns is not None and not buy_hold_returns.empty:
+                combined_returns = buy_hold_returns.mean(axis=1)
+                fig.add_trace(
+                    go.Scatter(x=combined_returns.index, y=combined_returns,
+                               mode='lines', name='Combined Buy & Hold', line=dict(color='orange')),
+                    row=2, col=3
+                )
+            fig.add_hline(y=1, line_dash="dash",
+                          line_color="red", row=2, col=3)
+
+            fig.update_layout(height=800, showlegend=True, title_text=title)
+            st.plotly_chart(fig, use_container_width=True)
+
+        with tab3:
+            st.subheader("Trade History")
+
+            if order_history.empty:
+                st.warning("No trade history available")
+            elif not hasattr(self, 'test_bars') or self.test_bars is None:
+                st.warning("No test bars available for trade history")
+            else:
+                # Create subplots for each symbol
+                for symbol in self.active_symbols:
+                    if symbol in self.test_bars.index.get_level_values(0):
+                        st.write(f"**{symbol} Trade History**")
+
+                        # Get price data and trades for this symbol
+                        symbol_bars = self.test_bars.xs(symbol, level=0)
+                        symbol_trades = order_history[order_history['symbol'] == symbol]
+
+                        fig = go.Figure()
+
+                        # Price history
+                        fig.add_trace(go.Scatter(
+                            x=symbol_bars.index,
+                            y=symbol_bars['close'],
+                            mode='lines',
+                            name=f'{symbol} Close Price',
+                            line=dict(color='blue', width=1.5)
+                        ))
+
+                        # Buy orders
+                        buy_orders = symbol_trades[symbol_trades['position']
+                                                   == Position.LONG.value]
+                        if not buy_orders.empty:
+                            fig.add_trace(go.Scatter(
+                                x=buy_orders.index,
+                                y=buy_orders['price'],
+                                mode='markers',
+                                name=f'Buy Orders ({len(buy_orders)})',
+                                marker=dict(symbol='triangle-up',
+                                            size=10, color='green'),
+                                text=[
+                                    f"Qty: {qty:.0f}" for qty in buy_orders['quantity']],
+                                hovertemplate='<b>Buy Order</b><br>Price: $%{y:.2f}<br>Quantity: %{text}<extra></extra>'
+                            ))
+
+                        # Sell orders
+                        sell_orders = symbol_trades[symbol_trades['position']
+                                                    == Position.SHORT.value]
+                        if not sell_orders.empty:
+                            fig.add_trace(go.Scatter(
+                                x=sell_orders.index,
+                                y=sell_orders['price'],
+                                mode='markers',
+                                name=f'Sell Orders ({len(sell_orders)})',
+                                marker=dict(symbol='triangle-down',
+                                            size=10, color='red'),
+                                text=[
+                                    f"Qty: {qty:.0f}" for qty in sell_orders['quantity']],
+                                hovertemplate='<b>Sell Order</b><br>Price: $%{y:.2f}<br>Quantity: %{text}<extra></extra>'
+                            ))
+
+                        fig.update_layout(
+                            title=f'{symbol} Price History with Trade Markers',
+                            xaxis_title='Date',
+                            yaxis_title='Price ($)',
+                            height=400
+                        )
+
+                        st.plotly_chart(fig, use_container_width=True)
+
+                        # Trade statistics
+                        if not symbol_trades.empty:
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("Total Trades", len(symbol_trades))
+                            with col2:
+                                total_volume = symbol_trades['quantity'].sum()
+                                st.metric("Total Volume",
+                                          f"{total_volume:.0f}")
+                            with col3:
+                                avg_price = (
+                                    symbol_trades['price'] * symbol_trades['quantity']).sum() / symbol_trades['quantity'].sum()
+                                st.metric("Avg Price", f"${avg_price:.2f}")
+
+                        st.divider()
+
     ################################################################################################
     ################################################################################################
 
