@@ -244,8 +244,10 @@ See the [examples](examples) directory for usage examples.
 A docker image is provided for convenience. To build the image, run the following command:
 
 ```bash
-docker build -t bacta . 
+docker build --build-arg WITH_EXTRAS=true -t bacta .
 ```
+
+The `WITH_EXTRAS` build arg tells the builder to include libraries to run the examples.
 
 To run the image, run the following command:
 
@@ -258,6 +260,8 @@ You can also install the package locally with:
 ```bash
 pip install -e .
 ```
+
+There's also a [VS Code Dev Container](https://code.visualstudio.com/docs/devcontainers/containers) file that uses the same included Docker image config.
 
 ### Tests
 

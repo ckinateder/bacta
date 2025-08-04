@@ -10,7 +10,7 @@ from src.utilities.logger import set_log_level
 # Import the classes we need to test
 
 # Set the log level to WARNING for all loggers in this test (except the root logger)
-set_log_level(logging.WARNING)
+set_log_level(logging.ERROR)
 
 
 class TestEventBacktester(EventBacktester):
@@ -1300,6 +1300,206 @@ class TestEventBacktesterStressTests(unittest.TestCase):
         order_history = direct_backtester.get_history()
         self.assertEqual(len(order_history), 1)
         self.assertEqual(order_history.iloc[0]["quantity"], 1000000)
+
+
+class TestEventBacktesterSharpeRatio(unittest.TestCase):
+    """Test Sharpe ratio calculation for EventBacktester class."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.symbols = ["AAPL", "GOOGL"]
+        self.backtester = TestEventBacktester(self.symbols, 1000.0)
+
+    def test_sharpe_ratio_basic_calculation(self):
+        """Test basic Sharpe ratio calculation with known values."""
+        # Create a simple state history with known returns
+        dates = pd.date_range('2024-01-01', periods=252, freq='D')
+        portfolio_values = [1000]
+        for i in range(1, 253):
+            noise = np.random.normal(0, 0.005)
+            new_value = portfolio_values[-1] * (1 + 0.01 + noise)
+            portfolio_values.append(new_value)
+        # Now portfolio_values is length 253
+        state_history = pd.DataFrame({
+            'cash': [1000] + [0] * 252,
+            'portfolio_value': portfolio_values,
+            'AAPL': [0] * 253,
+            'GOOGL': [0] * 253
+        }, index=[0] + list(dates))
+        self.backtester.state_history = state_history
+        sharpe = self.backtester.calculate_sharpe_ratio(
+            risk_free_rate=0.02, periods_per_year=252)
+        self.assertIsInstance(sharpe, float)
+        self.assertGreater(sharpe, 0)
+        self.assertGreater(portfolio_values[-1], 1000)
+
+    def test_sharpe_ratio_with_zero_volatility(self):
+        """Test Sharpe ratio calculation with zero volatility (risk-free returns)."""
+        # Case 1: mean return > risk-free rate per period (expect inf)
+        dates = pd.date_range('2024-01-01', periods=2, freq='D')
+        state_history = pd.DataFrame({
+            'cash': [1000, 0, 0],
+            'portfolio_value': [1000, 1100, 1200],
+            'AAPL': [0, 0, 0],
+            'GOOGL': [0, 0, 0]
+        }, index=[0] + list(dates))
+        self.backtester.state_history = state_history
+        sharpe_high_rf = self.backtester.calculate_sharpe_ratio(
+            risk_free_rate=0.05, periods_per_year=252)
+        self.assertEqual(sharpe_high_rf, float('inf'))
+        # Case 2: mean return < risk-free rate per period (expect -inf)
+        state_history_neg = pd.DataFrame({
+            'cash': [1000, 0, 0],
+            'portfolio_value': [1000, 900, 800],
+            'AAPL': [0, 0, 0],
+            'GOOGL': [0, 0, 0]
+        }, index=[0] + list(dates))
+        self.backtester.state_history = state_history_neg
+        sharpe_low_rf = self.backtester.calculate_sharpe_ratio(
+            risk_free_rate=0.05, periods_per_year=252)
+        self.assertEqual(sharpe_low_rf, float('-inf'))
+        # Case 3: mean return == risk-free rate per period (expect 0.0)
+        self.backtester.state_history = state_history
+        # Calculate mean return from actual portfolio values
+        pf = state_history['portfolio_value']
+        returns_actual = pf[pf.index != 0].pct_change().dropna()
+        mean_return_actual = returns_actual.mean()
+        rf_equal = mean_return_actual * 252
+        sharpe_equal_rf = self.backtester.calculate_sharpe_ratio(
+            risk_free_rate=rf_equal, periods_per_year=252)
+        self.assertAlmostEqual(sharpe_equal_rf, 0.0, places=7)
+
+    def test_sharpe_ratio_insufficient_data(self):
+        self.backtester.state_history = pd.DataFrame()
+        with self.assertRaises(ValueError, msg="Insufficient data to calculate Sharpe ratio"):
+            self.backtester.calculate_sharpe_ratio()
+        self.backtester.state_history = pd.DataFrame({
+            'cash': [1000],
+            'portfolio_value': [1000],
+            'AAPL': [0],
+            'GOOGL': [0]
+        }, index=[0])
+        with self.assertRaises(ValueError, msg="Insufficient trading data to calculate Sharpe ratio"):
+            self.backtester.calculate_sharpe_ratio()
+        self.backtester.state_history = pd.DataFrame({
+            'cash': [1000, 0],
+            'portfolio_value': [1000, 1000],
+            'AAPL': [0, 0],
+            'GOOGL': [0, 0]
+        }, index=[0, pd.Timestamp('2024-01-01')])
+        with self.assertRaises(ValueError, msg="No valid returns data to calculate Sharpe ratio"):
+            self.backtester.calculate_sharpe_ratio()
+
+    def test_sharpe_ratio_different_periods(self):
+        dates = pd.date_range('2024-01-01', periods=12, freq='M')
+        portfolio_values = [1000]
+        for i in range(1, 13):
+            noise = np.random.normal(0, 0.02)
+            new_value = portfolio_values[-1] * (1 + 0.01 + noise)
+            portfolio_values.append(new_value)
+        state_history = pd.DataFrame({
+            'cash': [1000] + [0] * 12,
+            'portfolio_value': portfolio_values,
+            'AAPL': [0] * 13,
+            'GOOGL': [0] * 13
+        }, index=[0] + list(dates))
+        self.backtester.state_history = state_history
+        sharpe_monthly = self.backtester.calculate_sharpe_ratio(
+            risk_free_rate=0.02, periods_per_year=12)
+        self.assertIsInstance(sharpe_monthly, float)
+        sharpe_quarterly = self.backtester.calculate_sharpe_ratio(
+            risk_free_rate=0.02, periods_per_year=4)
+        self.assertIsInstance(sharpe_quarterly, float)
+        sharpe_daily = self.backtester.calculate_sharpe_ratio(
+            risk_free_rate=0.02, periods_per_year=252)
+        self.assertIsInstance(sharpe_daily, float)
+
+    def test_sharpe_ratio_negative_returns(self):
+        dates = pd.date_range('2024-01-01', periods=252, freq='D')
+        portfolio_values = [1000]
+        for i in range(1, 253):
+            noise = np.random.normal(0, 0.005)
+            new_value = portfolio_values[-1] * (1 - 0.005 + noise)
+            portfolio_values.append(new_value)
+        state_history = pd.DataFrame({
+            'cash': [1000] + [0] * 252,
+            'portfolio_value': portfolio_values,
+            'AAPL': [0] * 253,
+            'GOOGL': [0] * 253
+        }, index=[0] + list(dates))
+        self.backtester.state_history = state_history
+        sharpe = self.backtester.calculate_sharpe_ratio(
+            risk_free_rate=0.02, periods_per_year=252)
+        self.assertLess(sharpe, 0)
+
+    def test_sharpe_ratio_integration_with_analyze_performance(self):
+        dates = pd.date_range('2024-01-01', periods=50, freq='D')
+        portfolio_values = [1000]
+        for i in range(1, 51):
+            noise = np.random.normal(0, 0.01)
+            new_value = portfolio_values[-1] * (1 + 0.002 + noise)
+            portfolio_values.append(new_value)
+        state_history = pd.DataFrame({
+            'cash': [1000] + [0] * 50,
+            'portfolio_value': portfolio_values,
+            'AAPL': [0] * 51,
+            'GOOGL': [0] * 51
+        }, index=[0] + list(dates))
+        self.backtester.state_history = state_history
+        test_bars_data = []
+        for symbol in self.symbols:
+            for date in dates:
+                test_bars_data.append({
+                    'symbol': symbol,
+                    'timestamp': date,
+                    'open': 100.0,
+                    'high': 105.0,
+                    'low': 95.0,
+                    'close': 103.0,
+                    'volume': 1000
+                })
+        test_bars = pd.DataFrame(test_bars_data)
+        test_bars.set_index(['symbol', 'timestamp'], inplace=True)
+        self.backtester.test_bars = test_bars
+        performance = self.backtester.analyze_performance()
+        self.assertIn('sharpe_ratio', performance)
+        self.assertIsInstance(performance['sharpe_ratio'], float)
+        self.assertIn('return_on_investment', performance)
+        self.assertIn('max_drawdown_percentage', performance)
+        self.assertIn('win_rate', performance)
+
+    def test_sharpe_ratio_edge_cases(self):
+        dates = pd.date_range('2024-01-01', periods=252, freq='D')
+        portfolio_values = [1000]
+        for i in range(1, 253):
+            noise = np.random.normal(0, 0.0001)
+            new_value = portfolio_values[-1] * (1 + 0.0001 + noise)
+            portfolio_values.append(new_value)
+        state_history = pd.DataFrame({
+            'cash': [1000] + [0] * 252,
+            'portfolio_value': portfolio_values,
+            'AAPL': [0] * 253,
+            'GOOGL': [0] * 253
+        }, index=[0] + list(dates))
+        self.backtester.state_history = state_history
+        sharpe = self.backtester.calculate_sharpe_ratio(
+            risk_free_rate=0.02, periods_per_year=252)
+        self.assertIsInstance(sharpe, float)
+        portfolio_values_high_vol = [1000]
+        for i in range(1, 253):
+            noise = np.random.normal(0, 0.05)
+            new_value = portfolio_values_high_vol[-1] * (1 + 0.01 + noise)
+            portfolio_values_high_vol.append(new_value)
+        state_history_high_vol = pd.DataFrame({
+            'cash': [1000] + [0] * 252,
+            'portfolio_value': portfolio_values_high_vol,
+            'AAPL': [0] * 253,
+            'GOOGL': [0] * 253
+        }, index=[0] + list(dates))
+        self.backtester.state_history = state_history_high_vol
+        sharpe_high_vol = self.backtester.calculate_sharpe_ratio(
+            risk_free_rate=0.02, periods_per_year=252)
+        self.assertIsInstance(sharpe_high_vol, float)
 
 
 if __name__ == '__main__':

@@ -1,6 +1,5 @@
 from datetime import datetime, timedelta
 import logging
-import random
 
 from alpaca.data.timeframe import TimeFrame
 import pandas as pd

@@ -2,7 +2,10 @@
     "name": "Arby's Development",
     "build": {
         "dockerfile": "../Dockerfile",
-        "context": ".."
+        "context": "..",
+        "args": {
+            "WITH_EXTRAS": "true"
+        }
     },
     "customizations": {
         "vscode": {

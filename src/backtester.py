@@ -48,7 +48,7 @@ class Order:
     def __str__(self) -> str:
         """String representation of the order.
         """
-        return f"{self.position.name} {self.quantity} of {self.symbol} at {self.price}"
+        return f"{self.position.name} {self.quantity} {self.symbol} @ {self.price:<.3f}"
 
 
 class EventBacktester(ABC):
@@ -260,11 +260,11 @@ class EventBacktester(ABC):
         # don't place an order if the value is less than the minimum trade value
         if order.get_value() < self.min_trade_value:
             logger.debug(
-                f"Skipping {order.position.name} order for {order.symbol} because trade value ${order.get_value():.2f} < ${self.min_trade_value:.2f}.")
+                f"Skipping {order}")
             return
         else:
             logger.debug(
-                f"Placing {f'adjusted ' if adjusted else ''}{order.position.name} order for {order.symbol} with quantity {order.quantity} at {order.price:.2f} for ${order.get_value():.2f}.")
+                f"Placing {f'adjusted ' if adjusted else ''}{order}.")
 
         if order.position == Position.LONG:
             self._place_buy_order(
@@ -408,6 +408,12 @@ class EventBacktester(ABC):
         all_cum_returns = self.get_buy_and_hold_returns()
         combined_returns = all_cum_returns.mean(axis=1)
 
+        # calculate Sharpe ratio
+        try:
+            sharpe_ratio = self.calculate_sharpe_ratio()
+        except ValueError:
+            sharpe_ratio = float('nan')
+
         return pd.Series({
             "trading_period_start": state_history.index[1],
             "trading_period_end": state_history.index[-1],
@@ -416,8 +422,74 @@ class EventBacktester(ABC):
             "start_portfolio_value": start_portfolio_value,
             "end_portfolio_value": end_portfolio_value,
             "win_rate": win_rate,
-            "buy_and_hold_return": combined_returns.iloc[-1]
+            "buy_and_hold_return": combined_returns.iloc[-1],
+            "sharpe_ratio": sharpe_ratio
         })
+
+    def calculate_sharpe_ratio(self, risk_free_rate: float = 0.0, periods_per_year: int = 252) -> float:
+        """
+        Calculate the Sharpe ratio for the backtest.
+
+        The Sharpe ratio is a measure of risk-adjusted return, calculated as:
+        Sharpe Ratio = (Portfolio Return - Risk-Free Rate) / Portfolio Standard Deviation
+
+        Args:
+            risk_free_rate (float, optional): The risk-free rate of return (annualized). Defaults to 0.0.
+            periods_per_year (int, optional): Number of periods per year for annualization. 
+                Defaults to 252 for daily data, use 12 for monthly, 4 for quarterly, etc.
+
+        Returns:
+            float: The annualized Sharpe ratio
+
+        Raises:
+            ValueError: If there's insufficient data to calculate the Sharpe ratio
+        """
+        state_history = self.get_state_history()
+
+        if state_history.empty or len(state_history) < 2:
+            raise ValueError("Insufficient data to calculate Sharpe ratio")
+
+        # Get portfolio values, excluding the initial state (index 0)
+        portfolio_values = state_history["portfolio_value"]
+        portfolio_values_filtered = portfolio_values[portfolio_values.index != 0]
+
+        if len(portfolio_values_filtered) < 2:
+            raise ValueError(
+                "Insufficient trading data to calculate Sharpe ratio")
+
+        # Calculate returns
+        returns = portfolio_values_filtered.pct_change().dropna()
+
+        if len(returns) == 0:
+            raise ValueError("No valid returns data to calculate Sharpe ratio")
+
+        # Calculate mean return and standard deviation
+        mean_return = returns.mean()
+        std_return = returns.std()
+        # If std_return is nan (e.g. only two identical returns), treat as zero
+        if np.isnan(std_return):
+            std_return = 0.0
+
+        # Handle edge case where standard deviation is zero
+        if std_return == 0:
+            rf_per_period = risk_free_rate / periods_per_year
+            if np.isclose(mean_return, rf_per_period, atol=1e-10):
+                return 0.0  # Zero Sharpe ratio when return equals risk-free rate
+            elif mean_return > rf_per_period:
+                # Infinite Sharpe ratio for risk-free positive returns
+                return float('inf')
+            elif mean_return < rf_per_period:
+                # Negative infinite Sharpe ratio for risk-free negative returns
+                return float('-inf')
+
+        # Annualize the returns and standard deviation
+        annualized_return = mean_return * periods_per_year
+        annualized_std = std_return * np.sqrt(periods_per_year)
+
+        # Calculate Sharpe ratio
+        sharpe_ratio = (annualized_return - risk_free_rate) / annualized_std
+
+        return sharpe_ratio
 
     def get_win_rate(self, percentage_threshold: float = 0.0, return_net_profits: bool = False) -> tuple[float, pd.DataFrame]:
         """Get the win rate of the backtest. This is done by calculating the net profit for each open position.
