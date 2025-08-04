@@ -61,13 +61,14 @@ def get_logger(level: int = get_log_level()) -> logging.Logger:
     return _logger_instance
 
 
-def set_log_level(level: int) -> None:
+def set_log_level(level: int = get_log_level()) -> None:
     """
     Set the global log level for the logger instance.
 
     Args:
         level: Logging level (e.g., logging.DEBUG, logging.INFO,
-               logging.WARNING, logging.ERROR, logging.CRITICAL)
+               logging.WARNING, logging.ERROR, logging.CRITICAL). 
+               Defaults to the environment variable LOG_LEVEL.
 
     Examples:
         >>> from src.utilities.logger import set_log_level
