@@ -138,7 +138,7 @@ def precompute_step(self, bars: pd.DataFrame):
 
 **Execution Methods:**
 - `load_train_bars(bars)`: Load training data and call `precompute_step`
-- `run(test_bars, close_positions=True)`: Execute backtest on test data
+- `run_backtest(test_bars, close_positions=True)`: Execute backtest on test data
 
 **Analysis Methods:**
 - `analyze_performance()`: Calculate performance metrics
@@ -190,7 +190,7 @@ strategy = MyStrategy(active_symbols=["AAPL", "MSFT"], cash=10000)
 strategy.load_train_bars(train_data)
 
 # Run backtest
-strategy.run(test_data)
+strategy.run_backtest(test_data)
 
 # Analyze results
 performance = strategy.analyze_performance()

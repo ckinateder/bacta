@@ -16,7 +16,7 @@ from src import *
 from src.backtester import EventBacktester, Order, Position
 from src.utilities import dash, get_logger, set_log_level
 
-set_log_level(logging.INFO)
+set_log_level(logging.DEBUG)
 
 
 class KeltnerChannelBacktester(EventBacktester):
@@ -85,13 +85,13 @@ if __name__ == "__main__":
 
     # create the backtester
     backtester = KeltnerChannelBacktester(
-        symbols, cash=2000, allow_short=False, allow_overdraft=False, min_trade_value=1, market_hours_only=True)
+        symbols, cash=2000, allow_short=True, allow_overdraft=False, min_trade_value=1, market_hours_only=True)
 
     # preload the train bars
     backtester.load_train_bars(train_bars)
 
-    # run the backtest
-    backtester.run(test_bars)
+    # run_backtest the backtest
+    backtester.run_backtest(test_bars)
 
     # plot the order and state history
     print(dash("order history"))

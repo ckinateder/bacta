@@ -79,10 +79,10 @@ class EventBacktester(ABC):
     of the testing period.
 
     These structures are updated based on the events that occur, and are used to calculate the performance of the backtester.
-    The user may want to override the run method to handle the events.
+    The user may want to override the run_backtest method to handle the events.
 
     To use this class, the user must override the generate_order method. If necessary, the user can override the precompute_step and update_step methods.
-    The user can call the run method to run the backtest.
+    The user can call the run_backtest method to run_backtest the backtest.
 
     The backtester is designed to be used with a multi-index dataframe of bars. The index is (symbol, timestamp) and the columns are OHLCV.
     Example:
@@ -299,7 +299,7 @@ class EventBacktester(ABC):
                     self._place_buy_order(
                         symbol, prices[symbol], abs(position), index)
 
-    def run(self, test_bars: pd.DataFrame, close_positions: bool = True, disable_tqdm: bool = False):
+    def run_backtest(self, test_bars: pd.DataFrame, close_positions: bool = True, disable_tqdm: bool = False):
         """
         Run a single period of the backtest over the given dataframe.
         Assume that prices have their indicators already calculated and are in the prices dataframe.
@@ -413,8 +413,10 @@ class EventBacktester(ABC):
         # calculate win rate
         win_rate, net_profits = self.get_win_rate(return_net_profits=True)
         avg_trade_return = net_profits["net_profit_percentage"].mean()
-        largest_win = net_profits["net_profit_dollars"].max()
-        largest_loss = net_profits["net_profit_dollars"].min()
+        largest_win = net_profits["net_profit_percentage"].max()
+        largest_loss = net_profits["net_profit_percentage"].min()
+        largest_win_dollars = net_profits["net_profit_dollars"].max()
+        largest_loss_dollars = net_profits["net_profit_dollars"].min()
         max_consecutive_wins = net_profits["win"].astype(
             int).diff().ne(0).cumsum().max()
         max_consecutive_losses = net_profits["win"].astype(
@@ -447,8 +449,10 @@ class EventBacktester(ABC):
             "number_of_winning_trades": len(net_profits[net_profits["win"]]),
             "number_of_losing_trades": len(net_profits[~net_profits["win"]]),
             "avg_trade_return": avg_trade_return,
-            "largest_win": round(largest_win, 2),
-            "largest_loss": round(largest_loss, 2),
+            "largest_win":  largest_win,
+            "largest_loss": largest_loss,
+            "largest_win_dollars": round(largest_win_dollars, 2),
+            "largest_loss_dollars": round(largest_loss_dollars, 2),
             "max_consecutive_wins": max_consecutive_wins,
             "max_consecutive_losses": max_consecutive_losses
         })
@@ -876,55 +880,63 @@ class EventBacktester(ABC):
         ax3.legend()
         ax3.grid(True, linestyle='--', alpha=0.7)
 
-        # Subplot 4: Equity Curve
-        ax4.step(portfolio_values_filtered.index, portfolio_values_filtered,
-                 label="Portfolio Value", linewidth=2, color='blue', where='post')
-        initial_value = portfolio_values_filtered.iloc[0]
-        ax4.axhline(y=initial_value, color='red', linestyle='--', alpha=0.7,
-                    label=f'Initial Value: ${initial_value:.2f}')
-        ax4.set_title("Equity Curve")
-        ax4.set_ylabel("Portfolio Value ($)")
-        ax4.legend()
-        ax4.grid(True, linestyle='--', alpha=0.7)
-
-        # Subplot 5: symbol Prices
+        # Subplot 4: symbol Prices
         if hasattr(self, 'test_bars') and self.test_bars is not None:
             for symbol in self.active_symbols:
                 if symbol in self.test_bars.index.get_level_values(0):
-                    ax5.step(self.test_bars.xs(symbol, level=0).index, self.test_bars.xs(symbol, level=0).loc[:, "close"],
+                    ax4.step(self.test_bars.xs(symbol, level=0).index, self.test_bars.xs(symbol, level=0).loc[:, "close"],
                              label=symbol, linewidth=1.5, where='post')
-            ax5.set_title("Symbol Prices")
-            ax5.set_ylabel("Price ($)")
-            ax5.legend()
-            ax5.grid(True, linestyle='--', alpha=0.7)
+            ax4.set_title("Symbol Prices")
+            ax4.set_ylabel("Price ($)")
+            ax4.legend()
+            ax4.grid(True, linestyle='--', alpha=0.7)
         else:
-            ax5.text(0.5, 0.5, 'No test prices available',
-                     transform=ax5.transAxes, ha='center', va='center')
-            ax5.set_title("symbol Prices")
+            ax4.text(0.5, 0.5, 'No test prices available',
+                     transform=ax4.transAxes, ha='center', va='center')
+            ax4.set_title("symbol Prices")
 
-        # Subplot 6: Buy and Hold Returns
+        # Subplot 5: Buy and Hold Returns
         if hasattr(self, 'test_bars') and self.test_bars is not None:
             all_cum_returns = self.get_buy_and_hold_returns()
             for symbol in all_cum_returns.columns:
-                ax6.step(all_cum_returns.index, all_cum_returns[symbol],
+                ax5.step(all_cum_returns.index, all_cum_returns[symbol],
                          label=f'{symbol} B&H', linewidth=1.5, alpha=0.7, where='post')
 
             # Calculate combined returns (equal-weighted portfolio)
             if not all_cum_returns.empty:
                 combined_returns = all_cum_returns.mean(axis=1)
-                ax6.step(combined_returns.index, combined_returns,
+                ax5.step(combined_returns.index, combined_returns,
                          label='Combined B&H', linewidth=2, color='black', linestyle='-', where='post')
 
-            ax6.axhline(y=1, color='red', linestyle='--',
+            ax5.axhline(y=1, color='red', linestyle='--',
                         alpha=0.7, label='Break-even')
-            ax6.set_title("Buy and Hold Returns")
-            ax6.set_ylabel("Cumulative Return")
-            ax6.legend()
-            ax6.grid(True, linestyle='--', alpha=0.7)
+            ax5.set_title("Buy and Hold Returns")
+            ax5.set_ylabel("Cumulative Return")
+            ax5.legend()
+            ax5.grid(True, linestyle='--', alpha=0.7)
         else:
-            ax6.text(0.5, 0.5, 'No test prices available',
-                     transform=ax6.transAxes, ha='center', va='center')
-            ax6.set_title("Buy and Hold Returns")
+            ax5.text(0.5, 0.5, 'No test prices available',
+                     transform=ax5.transAxes, ha='center', va='center')
+            ax5.set_title("Buy and Hold Returns")
+
+        # Subplot 6: Strategy vs Buy and Hold
+        ax6.step(cumulative_returns.index, cumulative_returns,
+                 label="Strategy Returns", linewidth=2, color='blue', where='post')
+
+        # Add buy and hold comparison
+        if hasattr(self, 'test_bars') and self.test_bars is not None:
+            all_cum_returns = self.get_buy_and_hold_returns()
+            if not all_cum_returns.empty:
+                combined_returns = all_cum_returns.mean(axis=1)
+                ax6.step(combined_returns.index, combined_returns,
+                         label='Combined Buy & Hold', linewidth=2, color='orange', linestyle='-', where='post')
+
+        ax6.axhline(y=1, color='red', linestyle='--',
+                    alpha=0.7, label='Break-even')
+        ax6.set_title("Strategy vs Buy & Hold")
+        ax6.set_ylabel("Cumulative Return")
+        ax6.legend()
+        ax6.grid(True, linestyle='--', alpha=0.7)
 
         # Rotate x-axis labels for all subplots
         for ax in [ax1, ax2, ax4, ax5, ax6]:

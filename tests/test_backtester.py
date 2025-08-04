@@ -316,7 +316,8 @@ class TestEventBacktesterUnit(unittest.TestCase):
         self.backtester.load_train_bars(self.train_bars)
 
         # Run backtest
-        state_history = self.backtester.run(self.test_bars, disable_tqdm=True)
+        state_history = self.backtester.run_backtest(
+            self.test_bars, disable_tqdm=True)
 
         # Check that state history is returned
         self.assertIsInstance(state_history, pd.DataFrame)
@@ -328,7 +329,8 @@ class TestEventBacktesterUnit(unittest.TestCase):
     def test_run_backtest_without_train(self):
         """Test running backtest without training data."""
         # Run backtest without loading train bars
-        state_history = self.backtester.run(self.test_bars, disable_tqdm=True)
+        state_history = self.backtester.run_backtest(
+            self.test_bars, disable_tqdm=True)
 
         # Check that state history is returned
         self.assertIsInstance(state_history, pd.DataFrame)
@@ -338,7 +340,7 @@ class TestEventBacktesterUnit(unittest.TestCase):
         """Test performance analysis."""
         # Run a backtest first
         self.backtester.load_train_bars(self.train_bars)
-        self.backtester.run(self.test_bars, disable_tqdm=True)
+        self.backtester.run_backtest(self.test_bars, disable_tqdm=True)
 
         # Analyze performance
         try:
@@ -407,7 +409,7 @@ class TestEventBacktesterUnit(unittest.TestCase):
         })
 
         with self.assertRaises(AssertionError):
-            self.backtester.run(invalid_bars)
+            self.backtester.run_backtest(invalid_bars)
 
     def test_advanced_backtester(self):
         """Test the more advanced backtester implementation."""
@@ -416,7 +418,7 @@ class TestEventBacktesterUnit(unittest.TestCase):
 
         # Run backtest
         advanced_backtester.load_train_bars(self.train_bars)
-        state_history = advanced_backtester.run(
+        state_history = advanced_backtester.run_backtest(
             self.test_bars, disable_tqdm=True)
 
         # Check that we have some state history
@@ -488,7 +490,8 @@ class TestEventBacktesterIntegration(unittest.TestCase):
         self.backtester.load_train_bars(self.train_bars)
 
         # Run backtest
-        state_history = self.backtester.run(self.test_bars, disable_tqdm=True)
+        state_history = self.backtester.run_backtest(
+            self.test_bars, disable_tqdm=True)
 
         # Verify results
         self.assertIsInstance(state_history, pd.DataFrame)
@@ -504,7 +507,7 @@ class TestEventBacktesterIntegration(unittest.TestCase):
         self.backtester.load_train_bars(self.train_bars)
 
         # Run backtest with position closing
-        state_history = self.backtester.run(
+        state_history = self.backtester.run_backtest(
             self.test_bars, close_positions=True, disable_tqdm=True)
 
         # Check that positions were closed at the end
@@ -518,7 +521,7 @@ class TestEventBacktesterIntegration(unittest.TestCase):
         self.backtester.load_train_bars(self.train_bars)
 
         # Run backtest without position closing
-        state_history = self.backtester.run(
+        state_history = self.backtester.run_backtest(
             self.test_bars, close_positions=False, disable_tqdm=True)
 
         # Check that we have some state history (orders may or may not be generated)
@@ -1084,7 +1087,7 @@ class TestEventBacktesterPlotting(unittest.TestCase):
     def test_plot_equity_curve_with_trades(self):
         """Test plotting equity curve with trading history."""
         # Run a backtest to generate some history
-        self.backtester.run(self.dummy_bars, disable_tqdm=True)
+        self.backtester.run_backtest(self.dummy_bars, disable_tqdm=True)
 
         # Plot equity curve
         fig = self.backtester.plot_equity_curve(
@@ -1102,7 +1105,7 @@ class TestEventBacktesterPlotting(unittest.TestCase):
     def test_plot_performance_analysis_with_trades(self):
         """Test plotting performance analysis with trading history."""
         # Run a backtest to generate some history
-        self.backtester.run(self.dummy_bars, disable_tqdm=True)
+        self.backtester.run_backtest(self.dummy_bars, disable_tqdm=True)
 
         # Plot performance analysis
         fig = self.backtester.plot_performance_analysis(
@@ -1120,7 +1123,7 @@ class TestEventBacktesterPlotting(unittest.TestCase):
     def test_plot_trade_history_with_trades(self):
         """Test plotting trade history with trading history."""
         # Run a backtest to generate some history
-        self.backtester.run(self.dummy_bars, disable_tqdm=True)
+        self.backtester.run_backtest(self.dummy_bars, disable_tqdm=True)
 
         # Plot trade history
         fig = self.backtester.plot_trade_history(
@@ -1131,7 +1134,7 @@ class TestEventBacktesterPlotting(unittest.TestCase):
     def test_plot_custom_figsize(self):
         """Test plotting with custom figure sizes."""
         # Run a backtest to generate some history
-        self.backtester.run(self.dummy_bars, disable_tqdm=True)
+        self.backtester.run_backtest(self.dummy_bars, disable_tqdm=True)
 
         # Test with custom figsize
         custom_figsize = (15, 8)
@@ -1143,7 +1146,7 @@ class TestEventBacktesterPlotting(unittest.TestCase):
     def test_plot_custom_title(self):
         """Test plotting with custom titles."""
         # Run a backtest to generate some history
-        self.backtester.run(self.dummy_bars, disable_tqdm=True)
+        self.backtester.run_backtest(self.dummy_bars, disable_tqdm=True)
 
         # Test with custom title
         custom_title = "Custom Test Title"
@@ -1193,7 +1196,7 @@ class TestEventBacktesterAdvancedFeatures(unittest.TestCase):
     def test_buy_and_hold_returns_calculation(self):
         """Test buy and hold returns calculation."""
         # Run a backtest
-        self.backtester.run(self.dummy_bars, disable_tqdm=True)
+        self.backtester.run_backtest(self.dummy_bars, disable_tqdm=True)
 
         # Get buy and hold returns
         bh_returns = self.backtester.get_buy_and_hold_returns()
@@ -1306,7 +1309,7 @@ class TestEventBacktesterDataValidation(unittest.TestCase):
         })
 
         with self.assertRaises(AssertionError):
-            self.backtester.run(invalid_bars)
+            self.backtester.run_backtest(invalid_bars)
 
     def test_missing_symbols_in_data(self):
         """Test handling of missing symbols in data."""
@@ -1331,7 +1334,7 @@ class TestEventBacktesterDataValidation(unittest.TestCase):
 
         # Should raise KeyError when trying to access missing symbols
         with self.assertRaises(KeyError):
-            self.backtester.run(single_symbol_data)
+            self.backtester.run_backtest(single_symbol_data)
 
     def test_non_monotonic_timestamps(self):
         """Test handling of non-monotonic timestamps."""
@@ -1357,7 +1360,7 @@ class TestEventBacktesterDataValidation(unittest.TestCase):
         invalid_bars.set_index(['symbol', 'timestamp'], inplace=True)
 
         with self.assertRaises(AssertionError):
-            self.backtester.run(invalid_bars)
+            self.backtester.run_backtest(invalid_bars)
 
     def test_duplicate_timestamps(self):
         """Test handling of duplicate timestamps."""
@@ -1383,7 +1386,7 @@ class TestEventBacktesterDataValidation(unittest.TestCase):
         invalid_bars.set_index(['symbol', 'timestamp'], inplace=True)
 
         with self.assertRaises(AssertionError):
-            self.backtester.run(invalid_bars)
+            self.backtester.run_backtest(invalid_bars)
 
     def test_non_timestamp_index(self):
         """Test handling of non-timestamp index."""
@@ -1405,7 +1408,7 @@ class TestEventBacktesterDataValidation(unittest.TestCase):
         invalid_bars.set_index(['symbol', 'timestamp'], inplace=True)
 
         with self.assertRaises(AssertionError):
-            self.backtester.run(invalid_bars)
+            self.backtester.run_backtest(invalid_bars)
 
 
 class TestEventBacktesterStressTests(unittest.TestCase):
@@ -1443,7 +1446,8 @@ class TestEventBacktesterStressTests(unittest.TestCase):
 
         # Run backtest on large dataset
         start_time = pd.Timestamp.now()
-        state_history = self.backtester.run(large_bars, disable_tqdm=True)
+        state_history = self.backtester.run_backtest(
+            large_bars, disable_tqdm=True)
         end_time = pd.Timestamp.now()
 
         # Check that it completes without errors
@@ -1482,7 +1486,8 @@ class TestEventBacktesterStressTests(unittest.TestCase):
         hf_bars = hf_bars.sort_index()
 
         # Run backtest
-        state_history = self.backtester.run(hf_bars, disable_tqdm=True)
+        state_history = self.backtester.run_backtest(
+            hf_bars, disable_tqdm=True)
 
         # Check results
         self.assertIsInstance(state_history, pd.DataFrame)

@@ -33,7 +33,7 @@ make
 make install
 ```
 
-Then, run the following command:
+Then, run_backtest the following command:
 
 ```bash
 pip install ta-lib
