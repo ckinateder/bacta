@@ -10,7 +10,7 @@ def create_logger(name: str = "bacta", level: int = logging.INFO) -> logging.Log
 
     # Create formatter
     formatter = logging.Formatter(
-        '[%(asctime)s-%(name)s-%(levelname)s] %(message)s',
+        '[%(asctime)s][%(levelname)s] %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
     console_handler.setFormatter(formatter)
@@ -44,7 +44,7 @@ def get_log_level() -> int:
         return logging.INFO
 
 
-def get_logger(name: str = "bacta", level: int = get_log_level()) -> logging.Logger:
+def get_logger(level: int = get_log_level()) -> logging.Logger:
     """
     Get a logger instance. Creates a new one if it doesn't exist.
 
@@ -57,7 +57,7 @@ def get_logger(name: str = "bacta", level: int = get_log_level()) -> logging.Log
     """
     global _logger_instance
     if _logger_instance is None:
-        _logger_instance = create_logger(name, level)
+        _logger_instance = create_logger("bacta", level)
     return _logger_instance
 
 

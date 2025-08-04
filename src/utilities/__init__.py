@@ -15,7 +15,7 @@ sys.path.append(os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__)))))
 
 # Create a logger for the utilities module
-logger = get_logger("bacta")
+logger = get_logger()
 
 load_dotenv()
 

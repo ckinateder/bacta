@@ -12,7 +12,7 @@ from utilities import get_logger, is_market_open
 from utilities.plotting import DEFAULT_FIGSIZE, plt_show
 
 # Get logger for this module
-logger = get_logger("backtester")
+logger = get_logger()
 
 
 class Position(Enum):
