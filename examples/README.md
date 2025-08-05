@@ -42,4 +42,5 @@ pip install ta-lib
 ## Usage
 
 - `keltner_channel.py`: A simple example of a backtester that uses the Keltner Channel to make decisions. Depends on TA-Lib.
-- `bars.py`: A simple example of how to download bars from Alpaca.
+- `ema_rsi.py`: A simple EMA crossover strategy. Depends on TA-Lib.
+- `data.py`: A simple example of how to download data from Alpaca.

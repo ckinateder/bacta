@@ -273,6 +273,10 @@ Make sure all tests pass before making a PR. Run all tests with:
 python -m unittest discover tests
 ```
 
+## Roadmap
+
+- [ ] Add transaction fees
+- [ ] Add streamlit dashboard
 
 ## License
 

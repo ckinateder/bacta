@@ -65,7 +65,7 @@ class EmaStrategy(EventBacktester):
         close_prices = bar.loc[:, "close"]
 
         for symbol in self.active_symbols:
-            quantity = round(300 / close_prices[symbol], 4)
+            quantity = round(400 / close_prices[symbol], 4)
             if self.rsis[symbol][index] > 75 and self.short_emas[symbol][index] > self.long_emas[symbol][index]:
                 return Order(symbol, Position.SHORT, close_prices[symbol], quantity)
             elif self.rsis[symbol][index] < 25 and self.short_emas[symbol][index] < self.long_emas[symbol][index]:
