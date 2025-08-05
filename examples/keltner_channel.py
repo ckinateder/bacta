@@ -5,7 +5,7 @@ from alpaca.data.timeframe import TimeFrame
 import pandas as pd
 from talib import ATR, EMA
 
-from bars import (
+from data import (
     download_bars,
     separate_bars_by_symbol,
     split_multi_index_bars_train_test,
@@ -78,7 +78,6 @@ if __name__ == "__main__":
     # download the bars
     bars = download_bars(symbols, start_date=datetime(
         2024, 1, 1), end_date=datetime.now() - timedelta(minutes=15), timeframe=TimeFrame.Hour)
-
     # split the bars into train and test
     train_bars, test_bars = split_multi_index_bars_train_test(
         bars, split_ratio=0.9)
@@ -101,12 +100,10 @@ if __name__ == "__main__":
 
     # plot the performance
     print(dash("performance"))
-    print(backtester.analyze_performance())
+    print(backtester.pretty_format_performance())
 
     # Plot the results
     print("plotting...")
-    backtester.plot_equity_curve(
-        title="_".join(symbols)+" Keltner Strategy Equity Curve")
     backtester.plot_performance_analysis(
         title="_".join(symbols)+" Keltner Strategy Performance")
     backtester.plot_trade_history(

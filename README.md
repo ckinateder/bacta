@@ -255,7 +255,7 @@ The `WITH_EXTRAS` build arg tells the builder to include libraries to run the ex
 To run the image, run the following command:
 
 ```bash
-docker run -it bacta --env-file .env
+docker run -it --env-file .env -v $(pwd):/app bacta 
 ```
 
 You can also install the package locally with:

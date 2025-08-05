@@ -2,7 +2,10 @@ import os
 from datetime import datetime, timedelta
 import pandas as pd
 from alpaca.data.historical import StockHistoricalDataClient
-from alpaca.data.requests import StockBarsRequest
+from alpaca.data.historical.crypto import CryptoHistoricalDataClient
+
+
+from alpaca.data.requests import StockBarsRequest, CryptoBarsRequest
 from alpaca.data.timeframe import TimeFrame
 
 # path wrangling
@@ -62,14 +65,54 @@ def download_bars(symbols: list[str], start_date: datetime, end_date: datetime,
         end=end_date,
         adjustment="all",
     )
-    filename = f"{'_'.join(symbols)}_{start_date}_{end_date}_{timeframe.value}"
-
+    symbol_str = ""
+    for symbol in symbols:
+        symbol_str += symbol.replace("/", "_")
+    filename = f"{symbol_str}_{start_date}_{end_date}_{timeframe.value}"
     if refresh_bars or not (os.path.exists(os.path.join(data_dir, filename + ".csv")) or os.path.exists(os.path.join(data_dir, filename + ".pkl"))):
         logger.debug(
             f"Refreshing... downloading bars for {symbols} from {start_date} to {end_date} with timeframe {timeframe.value}")
         bars = client.get_stock_bars(request_params).df  # get the bars
         # convert all the dates to est. this is a multi-index dataframe, so we need to convert the index
         bars.index = bars.index.map(lambda x: (x[0], x[1].astimezone(eastern)))
+        if resample:
+            bars = BarUtils.resample_multi_symbol_bars(bars)
+        save_dataframe(bars, filename, data_dir)
+        logger.debug(f"Saved bars to {filename}")
+
+    return load_dataframe(filename, data_dir)
+
+
+def download_crypto_bars(symbols: list[str], start_date: datetime, end_date: datetime,
+                         timeframe: TimeFrame, refresh_bars: bool = False,
+                         data_dir: str = getenv("DATA_DIR"), resample: bool = True) -> pd.DataFrame:
+    """Download the bars for the given symbols. Will first check if the bars are already downloaded and if not, will download them.
+    This requires an Alpaca API key.
+    """
+    start_date = start_date.strftime("%Y-%m-%d")
+    end_date = end_date.strftime("%Y-%m-%d")
+    logger.debug(
+        f"Loading close prices for {len(symbols)} symbols from {start_date} to {end_date} with timeframe {timeframe.value}")
+    ALPACA_API_KEY = getenv("ALPACA_API_KEY")
+    ALPACA_API_SECRET = getenv("ALPACA_API_SECRET")
+    client = CryptoHistoricalDataClient(
+        api_key=ALPACA_API_KEY, secret_key=ALPACA_API_SECRET
+    )
+    request_params = CryptoBarsRequest(
+        symbol_or_symbols=symbols,
+        timeframe=timeframe,
+        start=start_date,
+        end=end_date,
+        adjustment="all",
+    )
+    symbol_str = ""
+    for symbol in symbols:
+        symbol_str += symbol.replace("/", "_")
+    filename = f"{symbol_str}_{start_date}_{end_date}_{timeframe.value}"
+    if refresh_bars or not (os.path.exists(os.path.join(data_dir, filename + ".csv")) or os.path.exists(os.path.join(data_dir, filename + ".pkl"))):
+        logger.debug(
+            f"Refreshing... downloading bars for {symbols} from {start_date} to {end_date} with timeframe {timeframe.value}")
+        bars = client.get_crypto_bars(request_params).df
         if resample:
             bars = BarUtils.resample_multi_symbol_bars(bars)
         save_dataframe(bars, filename, data_dir)
@@ -281,6 +324,10 @@ class BarUtils:
 
 
 if __name__ == "__main__":
+    bars = download_crypto_bars(["ETH/USD"], datetime(2025, 7, 1),
+                                datetime.now(), TimeFrame.Hour)
+    print(bars)
+
     bars = download_bars(["AAPL"], datetime(2025, 7, 1),
-                         datetime(2025, 7, 31), TimeFrame.Hour)
+                         datetime.now() - timedelta(minutes=15), TimeFrame.Hour)
     print(bars)

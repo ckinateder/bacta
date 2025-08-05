@@ -30,7 +30,7 @@ class Position(Enum):
     NEUTRAL = 0
 
 
-QUANTITY_PRECISION = 2
+QUANTITY_PRECISION = 4
 
 
 class Order:
@@ -52,7 +52,7 @@ class Order:
     def get_value(self) -> float:
         """Get the value of the order.
         """
-        return round(self.price * self.quantity, QUANTITY_PRECISION)
+        return self.price * self.quantity
 
     def __str__(self) -> str:
         """String representation of the order.
@@ -414,13 +414,19 @@ class EventBacktester(ABC):
         win_rate, net_profits = self.get_win_rate(return_net_profits=True)
         avg_trade_return = net_profits["net_profit_percentage"].mean()
         largest_win = net_profits["net_profit_percentage"].max()
-        largest_loss = net_profits["net_profit_percentage"].min()
+        largest_loss = net_profits["net_profit_percentage"].min(
+        ) if net_profits["net_profit_percentage"].min() < 0 else 0
         largest_win_dollars = net_profits["net_profit_dollars"].max()
         largest_loss_dollars = net_profits["net_profit_dollars"].min()
         max_consecutive_wins = net_profits["win"].astype(
             int).diff().ne(0).cumsum().max()
         max_consecutive_losses = net_profits["win"].astype(
             int).diff().ne(0).cumsum().min()
+
+        # calculate percentage of time in market. meaning, the percentage of time that the portfolio was not empty
+        time_in_market = (
+            state_history["portfolio_value"] != 0).sum() / len(state_history)
+
         # compare to buy and hold (prices)
         all_cum_returns = self.get_buy_and_hold_returns()
         combined_returns = all_cum_returns.mean(axis=1)
@@ -454,8 +460,39 @@ class EventBacktester(ABC):
             "largest_win_dollars": round(largest_win_dollars, 2),
             "largest_loss_dollars": round(largest_loss_dollars, 2),
             "max_consecutive_wins": max_consecutive_wins,
-            "max_consecutive_losses": max_consecutive_losses
+            "max_consecutive_losses": max_consecutive_losses,
+            "time_in_market": time_in_market
         })
+
+    def pretty_format_performance(self) -> str:
+        """
+        Pretty print the performance of the backtest.
+        """
+        performance = self.analyze_performance()
+        output = f"""Backtest Performance:
+- Return on Investment: {(performance["return_on_investment"]-1)*100:.2f}%
+- vs. Buy and Hold Return: {(performance["buy_and_hold_return"]-1)*100:.2f}%
+- Sharpe Ratio: {performance["sharpe_ratio"]:.2f}
+- Max Drawdown Percentage: {(performance["max_drawdown_percentage"])*100:.2f}%\n
+- Start Portfolio Value: ${performance["start_portfolio_value"]:.2f}
+- End Portfolio Value: ${performance["end_portfolio_value"]:.2f}
+- Min Portfolio Value: ${performance["min_portfolio_value"]:.2f}
+- Max Portfolio Value: ${performance["max_portfolio_value"]:.2f}
+- Win Rate: {performance["win_rate"]*100:.2f}%\n
+- Number of Orders: {performance["number_of_orders"]}
+- Number of Winning Trades: {performance["number_of_winning_trades"]}
+- Number of Losing Trades: {performance["number_of_losing_trades"]}
+- Avg Trade Return: {performance["avg_trade_return"]*100:.2f}%
+- Largest Win: {performance["largest_win"]*100:.2f}% (${performance["largest_win_dollars"]:.2f})
+- Largest Loss: {performance["largest_loss"]*100:.2f}% (${performance["largest_loss_dollars"]:.2f})
+- Max Consecutive Wins: {performance["max_consecutive_wins"]}
+- Max Consecutive Losses: {performance["max_consecutive_losses"]}\n
+- Trading Period Start: {performance["trading_period_start"]}
+- Trading Period End: {performance["trading_period_end"]}
+- Trading Period Length: {performance["trading_period_length"]}
+- Time in Market: {performance["time_in_market"]*100:.2f}%
+        """
+        return output
 
     def calculate_sharpe_ratio(self, risk_free_rate: float = 0.0, periods_per_year: int = 252) -> float:
         """
@@ -804,7 +841,7 @@ class EventBacktester(ABC):
         plt.tight_layout()
 
         if save_plot:
-            plt_show(prefix=title.replace(" ", "_"))
+            plt_show(prefix=title.replace(" ", "_").replace("/", ""))
 
         if show_plot:
             plt.show()
@@ -945,7 +982,7 @@ class EventBacktester(ABC):
         plt.tight_layout()
 
         if save_plot:
-            plt_show(prefix=title.replace(" ", "_"))
+            plt_show(prefix=title.replace(" ", "_").replace("/", ""))
 
         if show_plot:
             plt.show()
@@ -1043,7 +1080,11 @@ class EventBacktester(ABC):
                         # Add quantity annotations for buy orders
                         for idx, row in buy_orders.iterrows():
                             if show_quantity:
-                                ax.annotate(f"{row['quantity']:.0f}",
+                                if row['quantity'] < 1:
+                                    fmtstr = f"{row['quantity']:.2e}"
+                                else:
+                                    fmtstr = f"{row['quantity']:.0f}"
+                                ax.annotate(fmtstr,
                                             (idx, row['price']),
                                             xytext=(5, 10), textcoords='offset points',
                                             fontsize=8, color='green', weight='bold')
@@ -1057,7 +1098,11 @@ class EventBacktester(ABC):
                         # Add quantity annotations for sell orders
                         for idx, row in sell_orders.iterrows():
                             if show_quantity:
-                                ax.annotate(f"{row['quantity']:.0f}",
+                                if row['quantity'] < 1:
+                                    fmtstr = f"{row['quantity']:.2e}"
+                                else:
+                                    fmtstr = f"{row['quantity']:.0f}"
+                                ax.annotate(fmtstr,
                                             (idx, row['price']),
                                             xytext=(5, -15), textcoords='offset points',
                                             fontsize=8, color='red', weight='bold')
@@ -1095,7 +1140,7 @@ class EventBacktester(ABC):
         plt.tight_layout()
 
         if save_plot:
-            plt_show(prefix=title.replace(" ", "_"))
+            plt_show(prefix=title.replace(" ", "_").replace("/", ""))
 
         if show_plot:
             plt.show()
