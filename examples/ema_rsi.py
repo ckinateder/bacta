@@ -63,6 +63,10 @@ class EmaStrategy(EventBacktester):
         Make a decision based on the prices.
         """
         close_prices = bar.loc[:, "close"]
+        # short ema is 21, long ema is 200
+        # rsi is 14
+        # if rsi is > 75 and short ema is > long ema, then short
+        # if rsi is < 25 and short ema is < long ema, then long
 
         for symbol in self.active_symbols:
             quantity = round(400 / close_prices[symbol], 4)
@@ -88,7 +92,7 @@ if __name__ == "__main__":
 
     # create the backtester
     backtester = EmaStrategy(
-        symbols, cash=2000, allow_short=False, allow_overdraft=False, min_trade_value=1, market_hours_only=True)
+        symbols, cash=2000, allow_short=False, min_cash_balance=100, min_trade_value=1, market_hours_only=True, transaction_cost=0.000, transaction_cost_type="percentage")
 
     # preload the train bars
     backtester.load_train_bars(train_bars)

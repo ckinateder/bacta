@@ -57,7 +57,7 @@ class Order:
     def __str__(self) -> str:
         """String representation of the order.
         """
-        return f"{self.position.name} {self.quantity} {self.symbol} @ ${self.price:<.3f}"
+        return f"{self.position.name} {round(self.quantity, QUANTITY_PRECISION)} {self.symbol} @ ${self.price:<.3f}"
 
 
 class EventBacktester(ABC):
@@ -102,7 +102,7 @@ class EventBacktester(ABC):
 
     """
 
-    def __init__(self, active_symbols: list[str], cash: float = 100, allow_short: bool = True, allow_overdraft: bool = False, min_trade_value: float = 1.0, market_hours_only: bool = True):
+    def __init__(self, active_symbols: list[str], cash: float = 2000, allow_short: bool = True, min_cash_balance: float = 10.0, min_trade_value: float = 1.0, market_hours_only: bool = True, transaction_cost: float = 0.0, transaction_cost_type: str = "percentage"):
         """
         Initialize the backtester.
 
@@ -110,18 +110,24 @@ class EventBacktester(ABC):
             active_symbols (list[str]): The symbols to trade.
             cash (float, optional): The initial cash balance. Defaults to 100.
             allow_short (bool, optional): Whether to allow short positions. If False, will not allow the backtester to shortsell. Defaults to True.
-            allow_overdraft (bool, optional): Whether to allow overdraft in the bank. If False, will not allow the backtester to go into negative cash. Defaults to False.
+            min_cash_balance (float, optional): The minimum cash balance to maintain. If the cash balance is less than this, the backtester will not place any orders. Defaults to 10.0.
             min_trade_value (float, optional): The minimum dollar value of a trade. If the order value is less than this, the order will be skipped. Defaults to 1.0.
             market_hours_only (bool, optional): Whether to only place orders during market hours. Defaults to True.
+            transaction_cost (float, optional): The transaction cost as a percentage of the trade value. Defaults to 0.0.
+            transaction_cost_type (str, optional): The type of transaction cost to use (dollar or percentage). Defaults to "percentage".
         """
         logger.debug(
-            f"Initializing backtester with active symbols: {active_symbols}, cash: {cash}, allow_short: {allow_short}, allow_overdraft: {allow_overdraft}, min_trade_value: {min_trade_value}, market_hours_only: {market_hours_only}")
+            f"Initializing backtester with active symbols: {active_symbols}, cash: {cash}, allow_short: {allow_short}, min_cash_balance: {min_cash_balance}, min_trade_value: {min_trade_value}, market_hours_only: {market_hours_only}")
         self.active_symbols = active_symbols
         self.initialize_bank(cash)
         self.allow_short = allow_short
-        self.allow_overdraft = allow_overdraft
+        self.min_cash_balance = min_cash_balance
         self.min_trade_value = min_trade_value
         self.market_hours_only = market_hours_only
+        self.transaction_cost = transaction_cost
+        self.transaction_cost_type = transaction_cost_type
+        assert transaction_cost_type in [
+            "percentage", "dollar"], "Transaction cost type must be either 'percentage' or 'dollar'"
 
         # may or may not be needed
         self.train_bars = None
@@ -257,11 +263,11 @@ class EventBacktester(ABC):
         # check if overdraft is allowed
         adjusted = False
         reason = ""
-        if not self.allow_overdraft and order.position == Position.LONG and self.get_state()["cash"] < order.get_value():
+        if order.position == Position.LONG and self.get_current_cash() < (order.get_value() + self.min_cash_balance):
             order.quantity = floor_decimal(
-                self.get_state()["cash"] / order.price, QUANTITY_PRECISION)
+                self.get_current_cash() / order.price, QUANTITY_PRECISION)
             adjusted = True
-            reason = "(no overdraft)"
+            reason = "(not enough cash)"
 
         # check if shorting is allowed
         if not self.allow_short and order.position == Position.SHORT and self.get_state()[order.symbol] < order.quantity:
@@ -269,21 +275,29 @@ class EventBacktester(ABC):
             adjusted = True
             reason = "(no shorting)"
 
+        # check if transaction cost is allowed
+        if self.transaction_cost_type == "percentage":
+            transaction_cost = order.get_value() * self.transaction_cost
+        elif self.transaction_cost_type == "dollar":
+            transaction_cost = self.transaction_cost
+
         # don't place an order if the value is less than the minimum trade value
         if order.get_value() < self.min_trade_value:
             logger.debug(
-                f"Skipping {order} {reason}")
+                f"Skipping {order} {reason} ({index})")
             return
         else:
             logger.debug(
-                f"Placing {f'adjusted ' if adjusted else ''}{order}.")
+                f"Placing {f'adjusted ' if adjusted else ''}{order}{f' + ${transaction_cost:.3f} TC' if transaction_cost > 0 else ''} ({index})")
 
         if order.position == Position.LONG:
             self._place_buy_order(
                 order.symbol, order.price, order.quantity, index)
+            self.state_history.loc[index, "cash"] -= transaction_cost
         elif order.position == Position.SHORT:
             self._place_sell_order(
                 order.symbol, order.price, order.quantity, index)
+            self.state_history.loc[index, "cash"] -= transaction_cost
 
     def _close_positions(self, prices: pd.Series, index: pd.Timestamp):
         """
@@ -738,6 +752,12 @@ class EventBacktester(ABC):
         """
         return self.state_history.iloc[-1]
 
+    def get_current_cash(self) -> float:
+        """
+        Get the current cash balance.
+        """
+        return self.state_history.iloc[-1]["cash"]
+
     def get_history(self) -> pd.DataFrame:
         """
         Get the history of the checkbook.
@@ -895,8 +915,8 @@ class EventBacktester(ABC):
         config_table_data = [
             ['Setting', 'Value'],
             ['Allow Short', str(self.allow_short)],
-            ['Allow Overdraft', str(self.allow_overdraft)],
             ['Market Hours Only', str(self.market_hours_only)],
+            ['Min Cash Balance', f"${self.min_cash_balance:.2f}"],
             ['Min Trade Value', f"${self.min_trade_value:.2f}"],
             ['Initial Cash', f"${self.state_history.iloc[0]['cash']:.2f}"],
         ]
@@ -1297,30 +1317,15 @@ class EventBacktester(ABC):
             "This method must be overridden by the child class.")
 
 
-class WalkForwardBacktester(EventBacktester, ABC):
+class WalkForwardBacktester(EventBacktester):
     """
     Walk forward backtester that runs the backtest for a given number of periods.
     """
 
-    def __init__(self, active_symbols: list[str], cash: float = 100, **kwargs):
-        super().__init__(active_symbols, cash, **kwargs)
-
-    def run_walk_forward(self, prices: pd.DataFrame, walk_forward_periods: int = 8, split_ratio: float = 0.8):
+    def __init__(self, single_tester: EventBacktester, walk_forward_periods: int = 8, split_ratio: float = 0.8):
         """
-        Run the backtest using walk forward optimization.
-
-
-        Args:
-            prices: DataFrame with prices of the assets. Columns are the symbols, index is the date.
-                Close prices are used.
-            walk_forward_periods: Number of periods to walk forward.
-        Returns:
-            DataFrame with the backtest results.
+        Walk forward backtester that runs the backtest for a given number of periods.
         """
-        # split the prices into walk forward periods
-        # all periods are the same length. last period will be shorter if the length is not a multiple of the walk forward periods
-        period_length = len(prices) // walk_forward_periods
-        remainder = len(prices) % walk_forward_periods
-
-        # we want the strategy to train on
-        raise NotImplementedError()
+        self.single_tester = single_tester
+        self.walk_forward_periods = walk_forward_periods
+        self.split_ratio = split_ratio

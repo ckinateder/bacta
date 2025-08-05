@@ -64,9 +64,11 @@ backtester = EventBacktester(
     active_symbols=["AAPL", "MSFT"],     # Symbols to trade
     cash=10000,                          # Initial capital
     allow_short=True,                    # Allow short selling
-    allow_overdraft=False,               # Prevent negative cash
+    min_cash_balance=0,                  # Minimum cash balance to maintain
     min_trade_value=100.0,               # Minimum trade size
-    market_hours_only=True               # Only trade during market hours
+    market_hours_only=True,              # Only trade during market hours
+    transaction_cost=0.000,              # Transaction cost
+    transaction_cost_type="percentage"   # Transaction cost type
 )
 ```
 
@@ -75,9 +77,11 @@ backtester = EventBacktester(
 | `active_symbols`| symbols that can be traded with the backtester|
 | `cash` |  cash to start with |
 | `allow_short`| allow shorting assets |
-| `allow_overdraft`| allow overdrafting the bank. if this is false, when a user places an order that would cause an overdraft, the backtester will attempt to reduce the order to be purchaseable with the currently available funds |
+| `min_cash_balance`| minimum cash balance to maintain |
 | `min_trade_value` | minimum trade value to submit |
 | `market_hours_only` | only place trades during market hours and on business days |
+| `transaction_cost` | transaction cost |
+| `transaction_cost_type` | transaction cost type (percentage or dollar) |
 
 #### Required Methods to Implement
 

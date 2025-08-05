@@ -13,7 +13,7 @@ from data import (
 
 from __init__ import *
 from src import *
-from src.backtester import EventBacktester, Order, Position
+from src.backtester import EventBacktester, Order, Position, WalkForwardBacktester
 from src.utilities import dash, get_logger, set_log_level
 
 set_log_level(logging.DEBUG)
@@ -85,10 +85,7 @@ if __name__ == "__main__":
 
     # create the backtester
     backtester = KeltnerChannelBacktester(
-        symbols, cash=2000, allow_short=False, allow_overdraft=False, min_trade_value=1, market_hours_only=True)
-
-    # preload the train bars
-    backtester.load_train_bars(train_bars)
+        symbols, cash=2000, allow_short=False, min_cash_balance=0, min_trade_value=1, market_hours_only=True, transaction_cost=0.000, transaction_cost_type="percentage")
 
     # run_backtest the backtest
     backtester.run_backtest(test_bars)
