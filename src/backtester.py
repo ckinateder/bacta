@@ -143,7 +143,7 @@ class EventBacktester(ABC):
         self.order_history = pd.DataFrame(
             columns=["symbol", "position", "price", "quantity"])
 
-    def _update_state(self, symbol: str, price: float, quantity: float, order: Position, index: pd.Timestamp, ffill: bool = True):
+    def _update_state(self, symbol: str, price: float, quantity: float, order: Position, index: pd.Timestamp):
         """Update the state of the backtester.
         Initial state is 0.
 
@@ -181,11 +181,7 @@ class EventBacktester(ABC):
         # update portfolio valuation
         self._update_portfolio_value(pd.Series({symbol: price}), index)
 
-        # ffill to get rid of Nans
-        if ffill:
-            self.state_history = self.state_history.ffill()
-
-    def _update_portfolio_value(self, prices: pd.Series, index: pd.Timestamp):
+    def _update_portfolio_value(self, prices: pd.Series, index: pd.Timestamp, ffill: bool = True):
         """Update the portfolio value at the given index using current prices.
 
         Args:
@@ -193,23 +189,24 @@ class EventBacktester(ABC):
             prices (dict[str, float]): Dictionary mapping symbol to current price
         """
         if index not in self.state_history.index:
-            return
-
-        # Get current positions
-        current_state = self.state_history.loc[index]
-        cash = current_state["cash"]
+            self.state_history = pd.concat(
+                [self.state_history, pd.DataFrame(index=[index])])
 
         # Calculate portfolio value: cash + sum of (position * price) for each symbol
-        portfolio_value = cash
+        portfolio_value = self.state_history.iloc[-1]["cash"]
         for symbol in self.active_symbols:
             if symbol in prices:
-                position = current_state[symbol]
+                position = self.state_history.iloc[-1][symbol]
                 portfolio_value += position * prices[symbol]
 
         # Update portfolio value in state history
         self.state_history.loc[index, "portfolio_value"] = portfolio_value
 
-    def _update_history(self, symbol: str, price: float, quantity: float, order: Position, index: pd.Timestamp):
+        # ffill to get rid of Nans
+        if ffill:
+            self.state_history = self.state_history.ffill()
+
+    def _update_order_history(self, symbol: str, price: float, quantity: float, order: Position, index: pd.Timestamp):
         """Update the history of the backtester.
 
         Args:
@@ -238,7 +235,8 @@ class EventBacktester(ABC):
         """
         # update state
         self._update_state(symbol, price, quantity, Position.LONG, index)
-        self._update_history(symbol, price, quantity, Position.LONG, index)
+        self._update_order_history(
+            symbol, price, quantity, Position.LONG, index)
 
     def _place_sell_order(self, symbol: str, price: float, quantity: float, index: pd.Timestamp):
         """
@@ -246,7 +244,8 @@ class EventBacktester(ABC):
         """
         # update state
         self._update_state(symbol, price, quantity, Position.SHORT, index)
-        self._update_history(symbol, price, quantity, Position.SHORT, index)
+        self._update_order_history(
+            symbol, price, quantity, Position.SHORT, index)
 
     def _place_order(self, order: Order, index: pd.Timestamp):
         """Place an order for a given symbol.
@@ -297,11 +296,11 @@ class EventBacktester(ABC):
             if self.get_state()[symbol] != 0:
                 position = self.get_state()[symbol]
                 if position > 0:
-                    self._place_sell_order(
-                        symbol, prices[symbol], abs(position), index)
+                    self._place_order(
+                        Order(symbol, Position.SHORT, prices[symbol], abs(position)), index)
                 else:
-                    self._place_buy_order(
-                        symbol, prices[symbol], abs(position), index)
+                    self._place_order(
+                        Order(symbol, Position.LONG, prices[symbol], abs(position)), index)
 
     def run_backtest(self, test_bars: pd.DataFrame, close_positions: bool = True, disable_tqdm: bool = False):
         """
@@ -356,6 +355,7 @@ class EventBacktester(ABC):
         with logging_redirect_tqdm(loggers=[get_logger()]):
             for index in tqdm(timestamps[start_loc:], desc="Backtesting", leave=False, dynamic_ncols=True, total=len(timestamps[start_loc:]), position=0, disable=disable_tqdm):
                 # perform update step
+                current_bar = full_bars.xs(index, level=1)
                 self.update_step(full_bars, index)
                 if close_positions and (self.market_hours_only and index == last_market_bar) or (not self.market_hours_only and index == timestamps[-2]):
                     logger.info(f"Closing positions at {index}...")
@@ -365,16 +365,15 @@ class EventBacktester(ABC):
 
                 if not self.market_hours_only or is_market_open(index):
                     # make a decision
-                    current_bar = full_bars.xs(index, level=1)
                     order = self.generate_order(current_bar, index)
 
                     # place the order if not None
                     if order is not None:
                         self._place_order(order, index)
 
-                    # Update portfolio value with current close prices
-                    current_close_prices = current_bar.loc[:, "close"]
-                    self._update_portfolio_value(current_close_prices, index)
+                # Update portfolio value with current close prices
+                current_close_prices = current_bar.loc[:, "close"]
+                self._update_portfolio_value(current_close_prices, index)
 
         # return the state history
         return self.get_state_history()
@@ -428,8 +427,9 @@ class EventBacktester(ABC):
             int).diff().ne(0).cumsum().min()
 
         # calculate percentage of time in market. meaning, the percentage of time that the portfolio was not empty
+        # count the number of non-zero symbols
         time_in_market = (
-            state_history["portfolio_value"] != 0).sum() / len(state_history)
+            state_history[self.active_symbols].sum(axis=1) != 0).sum() / len(state_history)
 
         # compare to buy and hold (prices)
         all_cum_returns = self.get_buy_and_hold_returns()
@@ -857,8 +857,10 @@ class EventBacktester(ABC):
             ['Largest Loss', f"{performance['largest_loss']*100:.2f}%"],
             ['Start Value', f"${performance['start_portfolio_value']:.2f}"],
             ['End Value', f"${performance['end_portfolio_value']:.2f}"],
-            # ['Min Value', f"${performance['min_portfolio_value']:.2f}"],
-            # ['Max Value', f"${performance['max_portfolio_value']:.2f}"],
+            ['Min Portfolio Value',
+                f"${performance['min_portfolio_value']:.2f}"],
+            ['Max Portfolio Value',
+                f"${performance['max_portfolio_value']:.2f}"],
             ['Max Consecutive Wins', f"{performance['max_consecutive_wins']}"],
             ['Max Consecutive Losses',
                 f"{performance['max_consecutive_losses']}"],
@@ -869,13 +871,14 @@ class EventBacktester(ABC):
 
         # Create table
         table = ax_table.table(cellText=table_data[1:], colLabels=table_data[0],
-                               cellLoc='left', loc='center',
+                               cellLoc='left', loc='upper center',
                                colWidths=[0.6, 0.4])
 
         # Style the table
+        cell_height = 1.7
         table.auto_set_font_size(False)
         table.set_fontsize(9)
-        table.scale(1, 2)
+        table.scale(1, cell_height)
 
         # Color header row
         for i in range(len(table_data[0])):
@@ -906,7 +909,7 @@ class EventBacktester(ABC):
         # Style the second table
         config_table.auto_set_font_size(False)
         config_table.set_fontsize(9)
-        config_table.scale(1, 2)
+        config_table.scale(1, cell_height)
 
         # Color header row
         for i in range(len(config_table_data[0])):

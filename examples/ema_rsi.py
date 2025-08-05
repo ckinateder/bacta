@@ -78,16 +78,16 @@ if __name__ == "__main__":
     bars = download_crypto_bars(symbols, start_date=datetime(
         2024, 1, 1), end_date=datetime.now() - timedelta(minutes=15), timeframe=TimeFrame.Hour)
 
-    # symbols = ["DUK", "NRG"]
-    # bars = download_bars(symbols, start_date=datetime(
-    #    2024, 1, 1), end_date=datetime.now() - timedelta(minutes=15), timeframe=TimeFrame.Hour)
+    symbols = ["DUK", "NRG"]
+    bars = download_bars(symbols, start_date=datetime(
+        2024, 1, 1), end_date=datetime.now() - timedelta(minutes=15), timeframe=TimeFrame.Hour)
     # split the bars into train and test
     train_bars, test_bars = split_multi_index_bars_train_test(
         bars, split_ratio=0.9)
 
     # create the backtester
     backtester = EmaStrategy(
-        symbols, cash=2000, allow_short=False, allow_overdraft=False, min_trade_value=1, market_hours_only=True)
+        symbols, cash=2000, allow_short=True, allow_overdraft=False, min_trade_value=1, market_hours_only=True)
 
     # preload the train bars
     backtester.load_train_bars(train_bars)
