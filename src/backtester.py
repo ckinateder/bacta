@@ -995,10 +995,28 @@ class EventBacktester(ABC):
         ax2.grid(True, linestyle='--', alpha=0.7)
 
         # Subplot 3: Returns Distribution
-        ax3.hist(returns, bins=50, alpha=0.7, color='green', edgecolor='black')
-        ax3.axvline(returns.mean(), color='red', linestyle='--',
-                    label=f'Mean: {returns.mean():.4f}')
-        ax3.set_title("Returns Distribution")
+        _, net_profits = self.get_win_rate(return_net_profits=True)
+        returns = net_profits["net_profit_percentage"]
+        ax3.hist(returns, bins=10, alpha=0.7, color='green', edgecolor='black')
+
+        # Mean line
+        mean_val = returns.mean()
+        ax3.axvline(mean_val, color='red', linestyle='--',
+                    label=f'Mean: {mean_val:.4f}')
+
+        # Median line
+        # median_val = returns.median()
+        # ax3.axvline(median_val, color='orange', linestyle='-.',
+        #            label=f'Median: {median_val:.4f}')
+
+        # Std deviation lines
+        std_val = returns.std()
+        ax3.axvline(mean_val + std_val, color='purple', linestyle=':',
+                    label=f'+1 Std: {(mean_val + std_val):.4f}')
+        ax3.axvline(mean_val - std_val, color='purple', linestyle=':',
+                    label=f'-1 Std: {(mean_val - std_val):.4f}')
+
+        ax3.set_title("Trade Returns Distribution")
         ax3.set_xlabel("Return")
         ax3.set_ylabel("Frequency")
         ax3.legend()

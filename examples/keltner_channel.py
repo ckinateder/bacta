@@ -60,10 +60,11 @@ class KeltnerChannelBacktester(EventBacktester):
         close_prices = bar.loc[:, "close"]
 
         for symbol in self.active_symbols:
+            quantity = round(150 / close_prices[symbol], 4)
             if close_prices[symbol] > self.upper_bands[symbol][index]:
-                return Order(symbol, Position.SHORT, close_prices[symbol], 1)
+                return Order(symbol, Position.SHORT, close_prices[symbol], quantity)
             elif close_prices[symbol] < self.lower_bands[symbol][index]:
-                return Order(symbol, Position.LONG, close_prices[symbol], 1)
+                return Order(symbol, Position.LONG, close_prices[symbol], quantity)
 
 
 if __name__ == "__main__":
@@ -84,7 +85,7 @@ if __name__ == "__main__":
 
     # create the backtester
     backtester = KeltnerChannelBacktester(
-        symbols, cash=2000, allow_short=True, allow_overdraft=False, min_trade_value=1, market_hours_only=True)
+        symbols, cash=2000, allow_short=False, allow_overdraft=False, min_trade_value=1, market_hours_only=True)
 
     # preload the train bars
     backtester.load_train_bars(train_bars)
