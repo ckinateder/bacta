@@ -10,7 +10,7 @@ from alpaca.data.timeframe import TimeFrame
 
 # path wrangling
 from __init__ import *
-from src.utilities import load_dataframe, save_dataframe, getenv, get_logger, eastern
+from bacta.utilities import load_dataframe, save_dataframe, getenv, get_logger, eastern
 
 # Create a logger for the bars module
 logger = get_logger("examples.bars")

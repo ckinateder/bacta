@@ -15,13 +15,7 @@ from utilities.plotting import DEFAULT_FIGSIZE, plt_show
 logger = get_logger()
 
 # get version from pyproject.toml
-with open("pyproject.toml", "r") as f:
-    for line in f:
-        if "version" in line:
-            version = line.split("=")[1].strip().strip('"')
-            break
-
-VERSION = version
+VERSION = "0.3.0"
 
 
 class Position(Enum):

@@ -1,6 +1,6 @@
 [project]
 name = "bacta"
-version = "0.3.0"
+version = "0.4.0"
 authors = [
   { name="Calvin J. Kinateder", email="calvinkinateder@gmail.com" },
 ]
@@ -13,6 +13,26 @@ classifiers = [
 ]
 license = "MIT"
 license-files = ["LICEN[CS]E*"]
+dependencies = [
+    "contourpy>=1.3.3",
+    "cycler>=0.12.1",
+    "fonttools>=4.59.0",
+    "holidays>=0.77",
+    "kiwisolver>=1.4.8",
+    "matplotlib>=3.10.5",
+    "numpy>=2.3.2",
+    "packaging>=25.0",
+    "pandas>=2.3.1",
+    "pillow>=11.3.0",
+    "pyparsing>=3.2.3",
+    "python-dateutil>=2.9.0.post0",
+    "python-dotenv>=1.1.1",
+    "pytz>=2025.2",
+    "seaborn>=0.13.2",
+    "six>=1.17.0",
+    "tqdm>=4.67.1",
+    "tzdata>=2025.2"
+]
 
 [project.urls]
 Homepage = "https://github.com/ckinateder/bacta"
@@ -21,3 +41,6 @@ Issues = "https://github.com/ckinateder/bacta/issues"
 [build-system]
 requires = ["setuptools >= 77.0.3"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

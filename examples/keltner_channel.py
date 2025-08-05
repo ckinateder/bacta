@@ -12,9 +12,9 @@ from data import (
 )
 
 from __init__ import *
-from src import *
-from src.backtester import EventBacktester, Order, Position, WalkForwardBacktester
-from src.utilities import dash, get_logger, set_log_level
+from bacta import *
+from bacta.backtester import EventBacktester, Order, Position, WalkForwardBacktester
+from bacta.utilities import dash, get_logger, set_log_level
 
 set_log_level(logging.DEBUG)
 
