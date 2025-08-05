@@ -65,7 +65,7 @@ class EmaStrategy(EventBacktester):
         close_prices = bar.loc[:, "close"]
 
         for symbol in self.active_symbols:
-            quantity = round(1000 / close_prices[symbol], 4)
+            quantity = round(300 / close_prices[symbol], 4)
             if self.rsis[symbol][index] > 75 and self.short_emas[symbol][index] > self.long_emas[symbol][index]:
                 return Order(symbol, Position.SHORT, close_prices[symbol], quantity)
             elif self.rsis[symbol][index] < 25 and self.short_emas[symbol][index] < self.long_emas[symbol][index]:
@@ -78,15 +78,16 @@ if __name__ == "__main__":
     bars = download_crypto_bars(symbols, start_date=datetime(
         2024, 1, 1), end_date=datetime.now() - timedelta(minutes=15), timeframe=TimeFrame.Hour)
 
+    # symbols = ["DUK", "NRG"]
     # bars = download_bars(symbols, start_date=datetime(
-   #     2024, 1, 1), end_date=datetime.now() - timedelta(minutes=15), timeframe=TimeFrame.Hour)
+    #    2024, 1, 1), end_date=datetime.now() - timedelta(minutes=15), timeframe=TimeFrame.Hour)
     # split the bars into train and test
     train_bars, test_bars = split_multi_index_bars_train_test(
         bars, split_ratio=0.9)
 
     # create the backtester
     backtester = EmaStrategy(
-        symbols, cash=2000, allow_short=True, allow_overdraft=False, min_trade_value=1, market_hours_only=False)
+        symbols, cash=2000, allow_short=False, allow_overdraft=False, min_trade_value=1, market_hours_only=True)
 
     # preload the train bars
     backtester.load_train_bars(train_bars)
@@ -110,3 +111,5 @@ if __name__ == "__main__":
         title="_".join(symbols)+" EMA RSI Strategy Performance")
     backtester.plot_trade_history(
         title="_".join(symbols)+" EMA RSI Strategy Trades")
+    backtester.plot_equity_curve(
+        title="_".join(symbols)+" EMA RSI Strategy Equity Curve")

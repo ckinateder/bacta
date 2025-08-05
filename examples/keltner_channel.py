@@ -108,3 +108,5 @@ if __name__ == "__main__":
         title="_".join(symbols)+" Keltner Strategy Performance")
     backtester.plot_trade_history(
         title="_".join(symbols)+" Keltner Strategy Trades")
+    backtester.plot_equity_curve(
+        title="_".join(symbols)+" Keltner Strategy Equity Curve")

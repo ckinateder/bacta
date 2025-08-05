@@ -6,6 +6,7 @@ from .logger import get_logger, set_log_level
 import pytz
 import holidays
 from datetime import datetime, time
+from math import floor
 
 # global variables
 nyse_holidays = holidays.NYSE()  # this is a dict-like object
@@ -18,6 +19,11 @@ sys.path.append(os.path.dirname(os.path.dirname(
 logger = get_logger()
 
 load_dotenv()
+
+
+def floor_decimal(f, d):
+    n = 10 ** d
+    return floor(f * n) / n
 
 
 def dash(text: str | None = None) -> str:

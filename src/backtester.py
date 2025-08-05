@@ -8,7 +8,7 @@ from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
 
 from __init__ import *
-from utilities import get_logger, is_market_open
+from utilities import get_logger, is_market_open, floor_decimal
 from utilities.plotting import DEFAULT_FIGSIZE, plt_show
 
 # Get logger for this module
@@ -257,19 +257,23 @@ class EventBacktester(ABC):
         """
         # check if overdraft is allowed
         adjusted = False
+        reason = ""
         if not self.allow_overdraft and order.position == Position.LONG and self.get_state()["cash"] < order.get_value():
-            order.quantity = round(
+            order.quantity = floor_decimal(
                 self.get_state()["cash"] / order.price, QUANTITY_PRECISION)
             adjusted = True
+            reason = "(no overdraft)"
+
         # check if shorting is allowed
         if not self.allow_short and order.position == Position.SHORT and self.get_state()[order.symbol] < order.quantity:
             order.quantity = self.get_state()[order.symbol]
             adjusted = True
+            reason = "(no shorting)"
 
         # don't place an order if the value is less than the minimum trade value
         if order.get_value() < self.min_trade_value:
             logger.debug(
-                f"Skipping {order}")
+                f"Skipping {order} {reason}")
             return
         else:
             logger.debug(
@@ -408,7 +412,7 @@ class EventBacktester(ABC):
         cumulative_return = (
             1 + state_history["portfolio_value"].pct_change()).cumprod()
         max_drawdown = cumulative_return.cummax() - cumulative_return
-        max_drawdown_percentage = max_drawdown.min()
+        max_drawdown_percentage = max_drawdown.max()
 
         # calculate win rate
         win_rate, net_profits = self.get_win_rate(return_net_profits=True)
@@ -769,9 +773,9 @@ class EventBacktester(ABC):
         self.train_bars = train_bars
         self.precompute_step(train_bars)
 
-    def plot_equity_curve(self, figsize: tuple = (20, 10), title: str = "Equity Curve", save_plot: bool = True, show_plot: bool = False) -> plt.Figure:
+    def plot_equity_curve(self, figsize: tuple = (16, 10), title: str = "Equity Curve Analysis", save_plot: bool = True, show_plot: bool = False) -> plt.Figure:
         """
-        Plot the equity curve of the backtester.
+        Plot a clean equity curve analysis with strategy vs buy & hold comparison and performance metrics table.
 
         Args:
             figsize (tuple): Figure size for the plot
@@ -786,12 +790,13 @@ class EventBacktester(ABC):
                 "No state history available for plotting equity curve")
             return
 
-        # Create figure and axis
-        fig, ax = plt.subplots(figsize=figsize)
+        # Create figure with subplots (1 row, 2 columns)
+        fig, (ax_plot, ax_table) = plt.subplots(
+            1, 2, figsize=figsize, gridspec_kw={'width_ratios': [2, 1]})
+        fig.suptitle(title, fontsize=14, fontweight='bold')
 
-        # Plot portfolio value over time
+        # Get portfolio values
         portfolio_values = state_history["portfolio_value"]
-        # Filter out the initial state (index 0) and only plot timestamp-indexed data
         portfolio_values_filtered = portfolio_values[portfolio_values.index != 0]
 
         if len(portfolio_values_filtered) == 0:
@@ -799,45 +804,124 @@ class EventBacktester(ABC):
                 "No trading data available for plotting equity curve")
             return None
 
-        ax.step(portfolio_values_filtered.index, portfolio_values_filtered,
-                label="Portfolio Value", linewidth=2, color='blue', where='post')
+        # Calculate returns and cumulative returns
+        returns = portfolio_values.pct_change().dropna()
+        cumulative_returns = (1 + returns).cumprod()
 
-        # Add horizontal line for initial portfolio value
-        initial_value = portfolio_values_filtered.iloc[0]
-        ax.axhline(y=initial_value, color='red', linestyle='--', alpha=0.7,
-                   label=f'Initial Value: ${initial_value:.2f}')
+        # Get performance metrics
+        performance = self.analyze_performance()
 
-        # Calculate and display key metrics
-        final_value = portfolio_values_filtered.iloc[-1]
-        total_return = ((final_value - initial_value) / initial_value) * 100
+        # Main plot: Strategy vs Buy & Hold (like subplot 6 from performance analysis)
+        ax_plot.step(cumulative_returns.index, cumulative_returns,
+                     label="Strategy", linewidth=2, color='blue', where='post')
 
-        # Calculate drawdown
-        cumulative_max = portfolio_values_filtered.cummax()
-        drawdown = ((portfolio_values_filtered -
-                    cumulative_max) / cumulative_max) * 100
-        max_drawdown = drawdown.min()
+        # Add buy and hold comparison
+        if hasattr(self, 'test_bars') and self.test_bars is not None:
+            all_cum_returns = self.get_buy_and_hold_returns()
+            if not all_cum_returns.empty:
+                combined_returns = all_cum_returns.mean(axis=1)
+                ax_plot.step(combined_returns.index, combined_returns,
+                             label='Buy & Hold (Equal-Weighted)', linewidth=2, color='orange', linestyle='-', where='post')
 
-        # Add text box with performance metrics
-        textstr = (
-            f'Total Return: {total_return:.2f}%\n'
-            f'Max Drawdown: {max_drawdown:.2f}%\n'
-            f'Final Value: ${final_value:.2f}'
-        )
-        props = dict(boxstyle='round', facecolor='wheat', alpha=0.8)
-        ax.text(0.02, 0.98, textstr, transform=ax.transAxes, fontsize=10,
-                verticalalignment='top', bbox=props)
+        ax_plot.axhline(y=1, color='red', linestyle='--',
+                        alpha=0.7, label='Break-even')
+        ax_plot.set_title("Strategy vs Buy & Hold")
+        ax_plot.set_ylabel("Cumulative Return")
+        ax_plot.set_xlabel("Date")
+        ax_plot.legend()
+        ax_plot.grid(True, linestyle='--', alpha=0.7)
+        plt.setp(ax_plot.get_xticklabels(), rotation=45, ha='right')
 
-        # Format the plot
-        ax.set_ylabel("Portfolio Value ($)")
-        ax.set_xlabel("Date")
-        ax.set_title(title)
-        ax.legend()
-        ax.grid(True, linestyle='--', alpha=0.7)
+        # Performance metrics table
+        ax_table.axis('off')
 
-        # Rotate x-axis labels for better readability
-        plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+        # Create table data
+        table_data = [
+            ['Metric', 'Value'],
+            ['Return on Investment',
+                f"{(performance['return_on_investment']-1)*100:.2f}%"],
+            ['Buy & Hold Return',
+                f"{(performance['buy_and_hold_return']-1)*100:.2f}%"],
+            ['Sharpe Ratio', f"{performance['sharpe_ratio']:.2f}"],
+            ['Max Drawdown',
+                f"{performance['max_drawdown_percentage']*100:.2f}%"],
+            ['Win Rate', f"{performance['win_rate']*100:.1f}%"],
+            ['Number of Orders', f"{performance['number_of_orders']}"],
+            ['Number of Winning Trades',
+                f"{performance['number_of_winning_trades']}"],
+            ['Number of Losing Trades',
+                f"{performance['number_of_losing_trades']}"],
+            ['Avg Trade Return',
+                f"{performance['avg_trade_return']*100:.2f}%"],
+            ['Largest Win', f"{performance['largest_win']*100:.2f}%"],
+            ['Largest Loss', f"{performance['largest_loss']*100:.2f}%"],
+            ['Start Value', f"${performance['start_portfolio_value']:.2f}"],
+            ['End Value', f"${performance['end_portfolio_value']:.2f}"],
+            # ['Min Value', f"${performance['min_portfolio_value']:.2f}"],
+            # ['Max Value', f"${performance['max_portfolio_value']:.2f}"],
+            ['Max Consecutive Wins', f"{performance['max_consecutive_wins']}"],
+            ['Max Consecutive Losses',
+                f"{performance['max_consecutive_losses']}"],
+            ['Trading Period Length',
+                f"{performance['trading_period_length']}"],
+            ['Time in Market', f"{performance['time_in_market']*100:.1f}%"]
+        ]
 
-        # Adjust layout to prevent label cutoff
+        # Create table
+        table = ax_table.table(cellText=table_data[1:], colLabels=table_data[0],
+                               cellLoc='left', loc='center',
+                               colWidths=[0.6, 0.4])
+
+        # Style the table
+        table.auto_set_font_size(False)
+        table.set_fontsize(9)
+        table.scale(1, 2)
+
+        # Color header row
+        for i in range(len(table_data[0])):
+            table[(0, i)].set_facecolor('#4CAF50')
+            table[(0, i)].set_text_props(weight='bold', color='white')
+
+        # Color alternating rows
+        for i in range(1, len(table_data)-1):
+            for j in range(len(table_data[0])):
+                if i % 2 == 0:
+                    table[(i, j)].set_facecolor('#f0f0f0')
+
+        # Add second table for configuration flags
+        config_table_data = [
+            ['Setting', 'Value'],
+            ['Allow Short', str(self.allow_short)],
+            ['Allow Overdraft', str(self.allow_overdraft)],
+            ['Market Hours Only', str(self.market_hours_only)],
+            ['Min Trade Value', f"${self.min_trade_value:.2f}"],
+            ['Initial Cash', f"${self.state_history.iloc[0]['cash']:.2f}"],
+        ]
+
+        # Create second table (positioned below the first table)
+        config_table = ax_table.table(cellText=config_table_data[1:], colLabels=config_table_data[0],
+                                      cellLoc='left', loc='lower center',
+                                      colWidths=[0.6, 0.4])
+
+        # Style the second table
+        config_table.auto_set_font_size(False)
+        config_table.set_fontsize(9)
+        config_table.scale(1, 2)
+
+        # Color header row
+        for i in range(len(config_table_data[0])):
+            # Different color for config table
+            config_table[(0, i)].set_facecolor('#2196F3')
+            config_table[(0, i)].set_text_props(weight='bold', color='white')
+
+        # Color alternating rows
+        for i in range(1, len(config_table_data)-1):
+            for j in range(len(config_table_data[0])):
+                if i % 2 == 0:
+                    # Light blue for alternating rows
+                    config_table[(i, j)].set_facecolor('#e3f2fd')
+
+        # Adjust layout
         plt.tight_layout()
 
         if save_plot:
@@ -937,7 +1021,7 @@ class EventBacktester(ABC):
             all_cum_returns = self.get_buy_and_hold_returns()
             for symbol in all_cum_returns.columns:
                 ax5.step(all_cum_returns.index, all_cum_returns[symbol],
-                         label=f'{symbol} B&H', linewidth=1.5, alpha=0.7, where='post')
+                         label=f'{symbol} B&H', linewidth=1.5, alpha=0.5, where='post')
 
             # Calculate combined returns (equal-weighted portfolio)
             if not all_cum_returns.empty:
