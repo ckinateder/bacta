@@ -85,18 +85,18 @@ backtester = EventBacktester(
 
 #### Required Methods to Implement
 
-**1. `generate_order(bars: pd.DataFrame, index: pd.Timestamp) -> Order`**
+**1. `generate_orders(bars: pd.DataFrame, index: pd.Timestamp) -> list[Order]`**
 - **Purpose**: Core decision-making method that determines what trades to execute
 - **Input**: Current bar data and timestamp
-- **Output**: Order object or None (no trade)
+- **Output**: List of Order objects or empty list if no trades
 - **Called**: For each bar during backtest execution
 
 ```python
-def generate_order(self, bars: pd.DataFrame, index: pd.Timestamp) -> Order:
+def generate_orders(self, bars: pd.DataFrame, index: pd.Timestamp) -> list[Order]:
     # Example: Simple moving average crossover strategy
+    orders = []
     for symbol in self.active_symbols:
         symbol_data = bars.loc[symbol]
-        
         # Calculate indicators
         sma_20 = symbol_data['close'].rolling(20).mean()
         sma_50 = symbol_data['close'].rolling(50).mean()
@@ -105,13 +105,13 @@ def generate_order(self, bars: pd.DataFrame, index: pd.Timestamp) -> Order:
         
         # Trading logic
         if sma_20.loc[index] > sma_50.loc[index]:  # Golden cross
-            return Order(symbol=symbol, position=Position.LONG, 
-                        price=current_price, quantity=10)
+            orders.append(Order(symbol=symbol, position=Position.LONG, 
+                        price=current_price, quantity=10))
         elif sma_20.loc[index] < sma_50.loc[index]:  # Death cross
-            return Order(symbol=symbol, position=Position.SHORT, 
+            orders.append(Order(symbol=symbol, position=Position.SHORT, 
                         price=current_price, quantity=10)
-    
-    return None  # No trade
+
+    return orders  # No trade
 ```
 
 **2. `update_step(bars: pd.DataFrame, index: pd.Timestamp)`**
@@ -143,6 +143,7 @@ def precompute_step(self, bars: pd.DataFrame):
 **Execution Methods:**
 - `load_train_bars(bars)`: Load training data and call `precompute_step`
 - `run_backtest(test_bars, close_positions=True)`: Execute backtest on test data
+- `reset()`: Reset the backtester to its initial state
 
 **Analysis Methods:**
 - `analyze_performance()`: Calculate performance metrics
@@ -172,9 +173,9 @@ class MyStrategy(EventBacktester):
         # Optional: Update strategy state
         pass
     
-    def generate_order(self, bars, index):
+    def generate_orders(self, bars, index) -> list[Order]:
         # Required: Implement trading logic
-        # Return Order object or None
+        # Return list of Order objects or empty list if no trades
         pass
 ```
 

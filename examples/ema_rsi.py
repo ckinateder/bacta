@@ -13,9 +13,8 @@ from data import (
 )
 
 from __init__ import *
-from src import *
-from src.backtester import EventBacktester, Order, Position
-from src.utilities import dash, get_logger, set_log_level
+from bacta.backtester import EventBacktester, Order, Position
+from bacta.utilities import dash, get_logger, set_log_level
 
 set_log_level(logging.DEBUG)
 
@@ -58,7 +57,7 @@ class EmaStrategy(EventBacktester):
         self.rsis = {symbol: RSI(
             split_bars[symbol].loc[:, "close"], timeperiod=self.rsi_period) for symbol in self.active_symbols}
 
-    def generate_order(self, bar: pd.DataFrame, index: pd.Timestamp) -> Order:
+    def generate_orders(self, bar: pd.DataFrame, index: pd.Timestamp) -> list[Order]:
         """
         Make a decision based on the prices.
         """
@@ -67,13 +66,17 @@ class EmaStrategy(EventBacktester):
         # rsi is 14
         # if rsi is > 75 and short ema is > long ema, then short
         # if rsi is < 25 and short ema is < long ema, then long
-
+        orders = []
         for symbol in self.active_symbols:
             quantity = round(400 / close_prices[symbol], 4)
             if self.rsis[symbol][index] > 75 and self.short_emas[symbol][index] > self.long_emas[symbol][index]:
-                return Order(symbol, Position.SHORT, close_prices[symbol], quantity)
+                orders.append(Order(symbol, Position.SHORT,
+                              close_prices[symbol], quantity))
             elif self.rsis[symbol][index] < 25 and self.short_emas[symbol][index] < self.long_emas[symbol][index]:
-                return Order(symbol, Position.LONG, close_prices[symbol], quantity)
+                orders.append(Order(symbol, Position.LONG,
+                              close_prices[symbol], quantity))
+
+        return orders
 
 
 if __name__ == "__main__":

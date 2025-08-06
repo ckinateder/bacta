@@ -14,7 +14,7 @@ from bacta.utilities.plotting import DEFAULT_FIGSIZE, plt_show
 logger = get_logger()
 
 # get version from pyproject.toml
-VERSION = "0.4.0"
+VERSION = "0.4.1"
 
 
 class Position(Enum):
@@ -112,6 +112,7 @@ class EventBacktester(ABC):
         logger.debug(
             f"Initializing backtester with active symbols: {active_symbols}, cash: {cash}, allow_short: {allow_short}, min_cash_balance: {min_cash_balance}, min_trade_value: {min_trade_value}, market_hours_only: {market_hours_only}")
         self.active_symbols = active_symbols
+        self.initial_cash = cash
         self.initialize_bank(cash)
         self.allow_short = allow_short
         self.min_cash_balance = min_cash_balance
@@ -126,8 +127,15 @@ class EventBacktester(ABC):
         self.train_bars = None
         self.test_bars = None
         # self.full_bars = None
+        self.__already_ran = False
 
-    def initialize_bank(self, cash: float = 100):
+    def reset(self) -> None:
+        """Reset the backtester.
+        """
+        self.__already_ran = False
+        self.initialize_bank(self.initial_cash)
+
+    def initialize_bank(self, cash: float) -> None:
         """Initialize the bank and the state history.
 
         Args:
@@ -137,8 +145,6 @@ class EventBacktester(ABC):
             columns=["cash", "portfolio_value", *self.active_symbols])
         self.state_history.loc[0] = [
             cash, cash, *[0] * len(self.active_symbols)]
-
-        # history of orders
         self.order_history = pd.DataFrame(
             columns=["symbol", "position", "price", "quantity"])
 
@@ -320,6 +326,12 @@ class EventBacktester(ABC):
             close_positions (bool, optional): Whether to close positions at the end of the backtest. Defaults to True.
             disable_tqdm (bool, optional): Whether to disable the tqdm progress bar. Defaults to False.
         """
+        if self.__already_ran:
+            logger.warning(
+                "Backtester has already been run. Run self.reset() to reset the backtester.")
+            return
+        self.__already_ran = True
+
         # check if the bars are in the correct format
         assert test_bars.index.nlevels == 2, "Bars must have a multi-index with (symbol, timestamp) index"
         assert test_bars.index.get_level_values(0).unique().isin(
@@ -372,10 +384,10 @@ class EventBacktester(ABC):
 
                 if not self.market_hours_only or is_market_open(index):
                     # make a decision
-                    order = self.generate_order(current_bar, index)
+                    orders = self.generate_orders(current_bar, index)
 
                     # place the order if not None
-                    if order is not None:
+                    for order in orders:
                         self._place_order(order, index)
 
                 # Update portfolio value with current close prices
@@ -407,6 +419,11 @@ class EventBacktester(ABC):
         """
         Analyze the performance of the backtest.
         """
+        if not self.__already_ran:
+            logger.warning(
+                "Backtester has not been run. Run self.run_backtest() to run the backtest.")
+            return pd.Series()
+
         # get the state history
         state_history = self.get_state_history()
         start_portfolio_value = state_history.iloc[0]["portfolio_value"]
@@ -523,6 +540,11 @@ class EventBacktester(ABC):
         Raises:
             ValueError: If there's insufficient data to calculate the Sharpe ratio
         """
+        if not self.__already_ran:
+            logger.warning(
+                "Backtester has not been run. Run self.run_backtest() to run the backtest.")
+            return 0.0
+
         state_history = self.get_state_history()
 
         if state_history.empty or len(state_history) < 2:
@@ -604,6 +626,11 @@ class EventBacktester(ABC):
         Returns:
             tuple[float, pd.DataFrame]: win rate and net profits if return_net_profits is True, otherwise just the win rate
         """
+        if not self.__already_ran:
+            logger.warning(
+                "Backtester has not been run. Run self.run_backtest() to run the backtest.")
+            return 0.0, pd.DataFrame()
+
         net_profits = pd.DataFrame(
             columns=["symbol", "entry_price",
                      "exit_price", "quantity", "net_profit_dollars", "net_profit_percentage", "win"],
@@ -796,6 +823,11 @@ class EventBacktester(ABC):
             show_plot (bool): Whether to display the plot
             title (str): Title for the plot
         """
+        if not self.__already_ran:
+            logger.warning(
+                "Backtester has not been run. Run self.run_backtest() to run the backtest.")
+            return
+
         state_history = self.get_state_history()
 
         if state_history.empty:
@@ -960,6 +992,11 @@ class EventBacktester(ABC):
             show_plot (bool): Whether to display the plot
             title (str): Title for the plot
         """
+        if not self.__already_ran:
+            logger.warning(
+                "Backtester has not been run. Run self.run_backtest() to run the backtest.")
+            return
+
         state_history = self.get_state_history()
 
         if state_history.empty:
@@ -1119,6 +1156,11 @@ class EventBacktester(ABC):
             show_plot (bool): Whether to display the plot
             title (str): Title for the plot
         """
+        if not self.__already_ran:
+            logger.warning(
+                "Backtester has not been run. Run self.run_backtest() to run the backtest.")
+            return
+
         order_history = self.get_history()
 
         if order_history.empty:
@@ -1295,7 +1337,7 @@ class EventBacktester(ABC):
         pass
 
     @abstractmethod
-    def generate_order(self, bars: pd.DataFrame, index: pd.Timestamp) -> Order:
+    def generate_orders(self, bars: pd.DataFrame, index: pd.Timestamp) -> list[Order]:
         """
         Make a decision based on the current prices. This is meant to be overridden by the child class.
         This will place an order if needed.
@@ -1304,7 +1346,7 @@ class EventBacktester(ABC):
             bars: DataFrame with bars of the assets. Multi-index with (symbol, timestamp) index and OHLCV columns.
             index: The index point of the bars.
         Returns:
-            Position: The order to place.
+            list[Order]: The orders to place.
         """
         raise NotImplementedError(
             "This method must be overridden by the child class.")

@@ -53,18 +53,22 @@ class KeltnerChannelBacktester(EventBacktester):
         self.lower_bands = {symbol: self.middle_bands[symbol] - 2 * ATR(split_bars[symbol].loc[:, "high"], split_bars[symbol].loc[:, "low"],
                                                                         split_bars[symbol].loc[:, "close"], timeperiod=self.keltner_channel_period) for symbol in self.active_symbols}
 
-    def generate_order(self, bar: pd.DataFrame, index: pd.Timestamp) -> Order:
+    def generate_orders(self, bar: pd.DataFrame, index: pd.Timestamp) -> list[Order]:
         """
         Make a decision based on the prices.
         """
         close_prices = bar.loc[:, "close"]
-
+        orders = []
         for symbol in self.active_symbols:
-            quantity = round(150 / close_prices[symbol], 4)
+            quantity = round(100 / close_prices[symbol], 4)
             if close_prices[symbol] > self.upper_bands[symbol][index]:
-                return Order(symbol, Position.SHORT, close_prices[symbol], quantity)
+                orders.append(Order(symbol, Position.SHORT,
+                              close_prices[symbol], quantity))
             elif close_prices[symbol] < self.lower_bands[symbol][index]:
-                return Order(symbol, Position.LONG, close_prices[symbol], quantity)
+                orders.append(Order(symbol, Position.LONG,
+                              close_prices[symbol], quantity))
+
+        return orders
 
 
 if __name__ == "__main__":
