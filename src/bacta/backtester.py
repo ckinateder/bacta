@@ -435,14 +435,14 @@ class EventBacktester(ABC):
         cumulative_return = (
             1 + state_history["portfolio_value"].pct_change()).cumprod()
         max_drawdown = cumulative_return.cummax() - cumulative_return
-        max_drawdown_percentage = max_drawdown.max()
+        max_drawdown_pct = max_drawdown.max()
 
         # calculate win rate
         win_rate, net_profits = self.get_win_rate(return_net_profits=True)
-        avg_trade_return = net_profits["pnl_percentage"].mean()
-        largest_win = net_profits["pnl_percentage"].max()
-        largest_loss = net_profits["pnl_percentage"].min(
-        ) if net_profits["pnl_percentage"].min() < 0 else 0
+        avg_trade_return = net_profits["pnl_pct"].mean()
+        largest_win = net_profits["pnl_pct"].max()
+        largest_loss = net_profits["pnl_pct"].min(
+        ) if net_profits["pnl_pct"].min() < 0 else 0
         largest_win_dollars = net_profits["pnl_dollars"].max()
         largest_loss_dollars = net_profits["pnl_dollars"].min()
         max_consecutive_wins = net_profits["win"].astype(
@@ -471,7 +471,7 @@ class EventBacktester(ABC):
             "trading_period_end": state_history.index[-1],
             "trading_period_length": state_history.index[-1] - state_history.index[1],
             "return_on_investment": return_on_investment,
-            "max_drawdown_percentage": max_drawdown_percentage,
+            "max_drawdown_pct": max_drawdown_pct,
             "start_portfolio_value": start_portfolio_value,
             "end_portfolio_value": end_portfolio_value,
             "min_portfolio_value": state_history["portfolio_value"].min().round(2),
@@ -503,7 +503,7 @@ class EventBacktester(ABC):
 - Return on Investment: {(performance["return_on_investment"]-1)*100:.2f}%
 - vs. Buy and Hold Return: {(performance["buy_and_hold_return"]-1)*100:.2f}%
 - Sharpe Ratio: {performance["sharpe_ratio"]:.2f}
-- Max Drawdown Percentage: {(performance["max_drawdown_percentage"])*100:.2f}%\n
+- Max Drawdown Percentage: {(performance["max_drawdown_pct"])*100:.2f}%\n
 - Start Portfolio Value: ${performance["start_portfolio_value"]:.2f}
 - End Portfolio Value: ${performance["end_portfolio_value"]:.2f}
 - Min Portfolio Value: ${performance["min_portfolio_value"]:.2f}
@@ -615,7 +615,7 @@ class EventBacktester(ABC):
         ])
 
         self.get_win_rate() -> (0.6666666666666666,
-          symbol  entry_price  exit_price  quantity  pnl_dollars  pnl_percentage    win
+          symbol  entry_price  exit_price  quantity  pnl_dollars  pnl_pct    win
         0   AAPL         20.0        24.0       1.0                 4.0               0.200000   True
         1   AAPL         21.0        22.0       2.0                 2.0               0.047619   True
         2   AAPL         25.0        22.0       1.0                -3.0              -0.120000   False
@@ -637,7 +637,7 @@ class EventBacktester(ABC):
 
         net_profits = pd.DataFrame(
             columns=["symbol", "entry_price",
-                     "exit_price", "quantity", "pnl_dollars", "pnl_percentage", "win"],
+                     "exit_price", "quantity", "pnl_dollars", "pnl_pct", "win"],
             index=[])
         net_profits = net_profits.astype({
             "symbol": "string",
@@ -645,7 +645,7 @@ class EventBacktester(ABC):
             "exit_price": "float64",
             "quantity": "float64",
             "pnl_dollars": "float64",
-            "pnl_percentage": "float64",
+            "pnl_pct": "float64",
             "win": "boolean"
         })
 
@@ -688,8 +688,7 @@ class EventBacktester(ABC):
                     # Calculate profit
                     pnl_dollars = (
                         exit_price - entry_price) * trade_quantity
-                    pnl_percentage = (
-                        exit_price - entry_price) / entry_price
+                    pnl_pct = (exit_price - entry_price) / entry_price
 
                     # Record the trade
                     net_profits.loc[net_pointer, "symbol"] = symbol
@@ -699,9 +698,9 @@ class EventBacktester(ABC):
                     net_profits.loc[net_pointer,
                                     "pnl_dollars"] = pnl_dollars
                     net_profits.loc[net_pointer,
-                                    "pnl_percentage"] = pnl_percentage
+                                    "pnl_pct"] = pnl_pct
                     net_profits.loc[net_pointer,
-                                    "win"] = pnl_percentage > percentage_threshold
+                                    "win"] = pnl_pct > percentage_threshold
 
                     # Update remaining quantities
                     long_orders.loc[long_index, "quantity"] -= trade_quantity
@@ -726,7 +725,7 @@ class EventBacktester(ABC):
                     # Calculate profit
                     pnl_dollars = (
                         entry_price - exit_price) * trade_quantity
-                    pnl_percentage = (
+                    pnl_pct = (
                         entry_price - exit_price) / entry_price
 
                     # Record the trade
@@ -737,9 +736,9 @@ class EventBacktester(ABC):
                     net_profits.loc[net_pointer,
                                     "pnl_dollars"] = pnl_dollars
                     net_profits.loc[net_pointer,
-                                    "pnl_percentage"] = pnl_percentage
+                                    "pnl_pct"] = pnl_pct
                     net_profits.loc[net_pointer,
-                                    "win"] = pnl_percentage > percentage_threshold
+                                    "win"] = pnl_pct > percentage_threshold
 
                     # Update remaining quantities
                     short_orders.loc[short_index, "quantity"] -= trade_quantity
@@ -783,7 +782,7 @@ class EventBacktester(ABC):
             return pd.DataFrame()
 
         simulated_results = pd.DataFrame(
-            columns=["win_rate", "pnl_dollars", "pnl_percentage"], index=pd.Index(range(num_simulations), name="simulation"))
+            columns=["win_rate", "pnl_dollars", "pnl_pct"], index=pd.Index(range(num_simulations), name="simulation"))
 
         simulations = []
 
@@ -798,26 +797,26 @@ class EventBacktester(ABC):
             equity_curve = [equity]
             for j in range(len(shuffled_trades)):
                 equity += shuffled_trades.iloc[j]["pnl_dollars"]
-                equity_pct *= (1 + shuffled_trades.iloc[j]["pnl_percentage"])
+                equity_pct *= (1 + shuffled_trades.iloc[j]["pnl_pct"])
 
                 equity_curve.append(equity)
 
             simulated_results.loc[i, "win_rate"] = len(
                 [profit for profit in shuffled_trades["win"] if profit]) / len(shuffled_trades)
             simulated_results.loc[i, "pnl_dollars"] = equity
-            simulated_results.loc[i, "pnl_percentage"] = 1+(equity_pct/100)
+            simulated_results.loc[i, "pnl_pct"] = 1+(equity_pct/100)
             simulations.append(equity_curve)
         # get results
         drawdown = simulated_results["pnl_dollars"].cummax(
         ) - simulated_results["pnl_dollars"]
         summary_stats = pd.Series({
             "median_final_equity": np.median(simulated_results["pnl_dollars"]),
-            "median_final_equity_pct": np.median(simulated_results["pnl_percentage"]),
+            "median_final_equity_pct": np.median(simulated_results["pnl_pct"]),
             "median_drawdown_pct": np.median(drawdown/simulated_results["pnl_dollars"]),
             "worst_case": np.min(simulated_results["pnl_dollars"]),
-            "worst_case_pct": np.min(simulated_results["pnl_percentage"]),
+            "worst_case_pct": np.min(simulated_results["pnl_pct"]),
             "best_case": np.max(simulated_results["pnl_dollars"]),
-            "best_case_pct": np.max(simulated_results["pnl_percentage"]),
+            "best_case_pct": np.max(simulated_results["pnl_pct"]),
             "median_win_rate": np.median(simulated_results["win_rate"]),
         })
 
@@ -964,7 +963,7 @@ class EventBacktester(ABC):
                 f"{(performance['buy_and_hold_return']-1)*100:.2f}%"],
             ['Sharpe Ratio', f"{performance['sharpe_ratio']:.2f}"],
             ['Max Drawdown',
-                f"{performance['max_drawdown_percentage']*100:.2f}%"],
+                f"{performance['max_drawdown_pct']*100:.2f}%"],
             ['Win Rate', f"{performance['win_rate']*100:.1f}%"],
             ['Number of Orders', f"{performance['number_of_orders']}"],
             ['Number of Winning Trades',
@@ -1121,7 +1120,7 @@ class EventBacktester(ABC):
 
         # Subplot 3: Returns Distribution
         _, net_profits = self.get_win_rate(return_net_profits=True)
-        returns = net_profits["pnl_percentage"]
+        returns = net_profits["pnl_pct"]
         ax3.hist(returns, bins=10, alpha=0.7, color='green', edgecolor='black')
 
         # Mean line

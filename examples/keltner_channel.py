@@ -60,7 +60,7 @@ class KeltnerChannelBacktester(EventBacktester):
         close_prices = bar.loc[:, "close"]
         orders = []
         for symbol in self.active_symbols:
-            quantity = round(100 / close_prices[symbol], 4)
+            quantity = round(80 / close_prices[symbol], 4)
             if close_prices[symbol] > self.upper_bands[symbol][index]:
                 orders.append(Order(symbol, Position.SHORT,
                               close_prices[symbol], quantity))

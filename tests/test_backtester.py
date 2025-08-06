@@ -1,12 +1,12 @@
-from src.backtester import EventBacktester, Position, Order
+from bacta.backtester import EventBacktester, Position, Order
 import unittest
 import pandas as pd
 import numpy as np
 from datetime import timedelta
 from abc import ABC
 import logging
-from src.__init__ import *
-from src.utilities.logger import set_log_level
+from bacta import *
+from bacta.utilities.logger import set_log_level
 # Import the classes we need to test
 
 # Set the log level to WARNING for all loggers in this test (except the root logger)
@@ -31,16 +31,18 @@ class TestEventBacktester(EventBacktester):
         """Simple update step that does nothing."""
         pass
 
-    def generate_order(self, bars: pd.DataFrame, index: pd.Timestamp) -> Order:
+    def generate_orders(self, bars: pd.DataFrame, index: pd.Timestamp) -> list[Order]:
         """
         Simple strategy: buy 1 share of each symbol on every opportunity.
         """
         # Buy 1 share of each symbol on every opportunity
         close_prices = bars.loc[:, "close"]
+        orders = []
         for symbol in self.active_symbols:
             if symbol in close_prices.index:
-                return Order(symbol, Position.LONG, close_prices[symbol], 1)
-        return None
+                orders.append(Order(symbol, Position.LONG,
+                              close_prices[symbol], 1))
+        return orders
 
 
 class TestEventBacktesterAdvanced(EventBacktester):
@@ -60,11 +62,12 @@ class TestEventBacktesterAdvanced(EventBacktester):
         """Update step that tracks trade count."""
         pass
 
-    def generate_order(self, bars: pd.DataFrame, index: pd.Timestamp) -> Order:
+    def generate_orders(self, bars: pd.DataFrame, index: pd.Timestamp) -> list[Order]:
         """
         Strategy: alternate between buying and selling based on trade count.
         """
         close_prices = bars.loc[:, "close"]
+        orders = []
         for symbol in self.active_symbols:
             if symbol in close_prices.index:
                 if self.trade_count % 2 == 0:
@@ -75,9 +78,9 @@ class TestEventBacktesterAdvanced(EventBacktester):
                     # Sell on odd trades
                     order = Order(symbol, Position.SHORT,
                                   close_prices[symbol], 1)
+                orders.append(order)
                 self.trade_count += 1
-                return order
-        return None
+        return orders
 
 
 class TestEventBacktesterDirectOrder(EventBacktester):
@@ -97,16 +100,16 @@ class TestEventBacktesterDirectOrder(EventBacktester):
         """Update step."""
         pass
 
-    def generate_order(self, bars: pd.DataFrame, index: pd.Timestamp) -> Order:
+    def generate_orders(self, bars: pd.DataFrame, index: pd.Timestamp) -> list[Order]:
         """
         Return orders from the direct_orders list if available.
         """
         if self.direct_orders:
-            return self.direct_orders.pop(0)
-        return None
+            return [self.direct_orders.pop(0)]
+        return []
 
     def add_direct_order(self, order: Order):
-        """Add an order to be executed during the next generate_order call."""
+        """Add an order to be executed during the next generate_orders call."""
         self.direct_orders.append(order)
 
 
@@ -348,7 +351,7 @@ class TestEventBacktesterUnit(unittest.TestCase):
 
             # Check that performance metrics are calculated
             self.assertIn("return_on_investment", performance)
-            self.assertIn("max_drawdown_percentage", performance)
+            self.assertIn("max_drawdown_pct", performance)
             self.assertIn("start_portfolio_value", performance)
             self.assertIn("end_portfolio_value", performance)
 
@@ -530,7 +533,7 @@ class TestEventBacktesterIntegration(unittest.TestCase):
     def test_get_win_rate(self):
         """Test getting win rate for long trades only (original functionality)."""
         # case 1: Traditional long trades (LONG -> SHORT)
-        self.backtester.initialize_bank()
+        self.backtester.initialize_bank(cash=10000.0)
         orders = [
             Order("AAPL", Position.LONG, 20.0, 1),
             Order("AAPL", Position.LONG, 21.0, 2),
@@ -543,6 +546,9 @@ class TestEventBacktesterIntegration(unittest.TestCase):
             self.backtester._place_order(orders[i], pd.Timestamp(
                 2024, 1, 1, 10, 0, tz="America/New_York") + timedelta(hours=i))
 
+        # Set the backtester as having been run so get_win_rate works
+        self.backtester._EventBacktester__already_ran = True
+
         win_rate, exits = self.backtester.get_win_rate(
             percentage_threshold=0.0, return_net_profits=True)
 
@@ -552,7 +558,7 @@ class TestEventBacktesterIntegration(unittest.TestCase):
             "exit_price": [24.0, 22.0, 22.0],
             "quantity": [1.0, 2.0, 1.0],
             "pnl_dollars": [4.0, 2.0, -3.0],
-            "pnl_percentage": [0.2, 0.047619, -0.12],
+            "pnl_pct": [0.2, 0.047619, -0.12],
             "win": [True, True, False]
         }).astype({"symbol": "string", "win": "boolean"})
 
@@ -561,7 +567,7 @@ class TestEventBacktesterIntegration(unittest.TestCase):
         self.assertEqual(win_rate, 2/3)
 
         # case 2: More complex long trades
-        self.backtester.initialize_bank()
+        self.backtester.initialize_bank(cash=10000.0)
         orders = [
             Order("AAPL", Position.LONG, 20.0, 1),
             Order("AAPL", Position.LONG, 21.0, 2),
@@ -574,6 +580,9 @@ class TestEventBacktesterIntegration(unittest.TestCase):
             self.backtester._place_order(orders[i], pd.Timestamp(
                 2024, 1, 1, 10, 0, tz="America/New_York") + timedelta(hours=i))
 
+        # Set the backtester as having been run so get_win_rate works
+        self.backtester._EventBacktester__already_ran = True
+
         win_rate, exits = self.backtester.get_win_rate(
             percentage_threshold=0.0, return_net_profits=True)
 
@@ -583,7 +592,7 @@ class TestEventBacktesterIntegration(unittest.TestCase):
             "exit_price": [24.0, 24.0, 22.0],
             "quantity": [1.0, 2.0, 1.0],
             "pnl_dollars": [4.0, 6.0, -3.0],
-            "pnl_percentage": [0.2, 0.142857, -0.12],
+            "pnl_pct": [0.2, 0.142857, -0.12],
             "win": [True, True, False]
         }).astype({"symbol": "string", "win": "boolean"})
         pd.testing.assert_frame_equal(
@@ -609,22 +618,25 @@ class TestEventBacktesterIntegration(unittest.TestCase):
             self.backtester._place_order(orders[i], pd.Timestamp(
                 2024, 1, 1, 10, 0, tz="America/New_York") + timedelta(hours=i))
 
+        # Set the backtester as having been run so get_win_rate works
+        self.backtester._EventBacktester__already_ran = True
+
         win_rate, exits = self.backtester.get_win_rate(
             percentage_threshold=0.0, return_net_profits=True)
 
         exits_should_be = pd.DataFrame([
             {"symbol": "AAPL", "entry_price": 20.0,
-                "exit_price": 24.0, "quantity": 1, "pnl_dollars": 4.0, "pnl_percentage": 0.2, "win": True},
+                "exit_price": 24.0, "quantity": 1, "pnl_dollars": 4.0, "pnl_pct": 0.2, "win": True},
             {"symbol": "AAPL", "entry_price": 21.0,
-                "exit_price": 24.0, "quantity": 2, "pnl_dollars": 6.0, "pnl_percentage": 0.1428571, "win": True},
+                "exit_price": 24.0, "quantity": 2, "pnl_dollars": 6.0, "pnl_pct": 0.1428571, "win": True},
             {"symbol": "AAPL", "entry_price": 25.0,
-                "exit_price": 22.0, "quantity": 1, "pnl_dollars": -3.0, "pnl_percentage": -0.12, "win": False},
+                "exit_price": 22.0, "quantity": 1, "pnl_dollars": -3.0, "pnl_pct": -0.12, "win": False},
             {"symbol": "GOOGL", "entry_price": 17.0,
-                "exit_price": 19.0, "quantity": 1, "pnl_dollars": 2.0, "pnl_percentage": 0.11764705882352941, "win": True},
+                "exit_price": 19.0, "quantity": 1, "pnl_dollars": 2.0, "pnl_pct": 0.11764705882352941, "win": True},
             {"symbol": "GOOGL", "entry_price": 11.0,
-                "exit_price": 19.0, "quantity": 2, "pnl_dollars": 16.0, "pnl_percentage": 0.7272727, "win": True},
+                "exit_price": 19.0, "quantity": 2, "pnl_dollars": 16.0, "pnl_pct": 0.7272727, "win": True},
             {"symbol": "GOOGL", "entry_price": 15.0,
-                "exit_price": 16.0, "quantity": 1, "pnl_dollars": 1.0, "pnl_percentage": 0.06666666666666667, "win": True}
+                "exit_price": 16.0, "quantity": 1, "pnl_dollars": 1.0, "pnl_pct": 0.06666666666666667, "win": True}
         ]).astype({"symbol": "string", "win": "boolean", "quantity": "float64"})
 
         pd.testing.assert_frame_equal(
@@ -644,14 +656,17 @@ class TestEventBacktesterIntegration(unittest.TestCase):
             self.backtester._place_order(orders[i], pd.Timestamp(
                 2024, 1, 1, 10, 0, tz="America/New_York") + timedelta(hours=i))
 
+        # Set the backtester as having been run so get_win_rate works
+        self.backtester._EventBacktester__already_ran = True
+
         win_rate, exits = self.backtester.get_win_rate(
             percentage_threshold=0.0, return_net_profits=True)
 
         exits_should_be = pd.DataFrame([
             {"symbol": "AAPL", "entry_price": 20.0,
-                "exit_price": 24.0, "quantity": 1, "pnl_dollars": 4.0, "pnl_percentage": 0.2, "win": True},
+                "exit_price": 24.0, "quantity": 1, "pnl_dollars": 4.0, "pnl_pct": 0.2, "win": True},
             {"symbol": "AAPL", "entry_price": 21.0,
-                "exit_price": 24.0, "quantity": 2, "pnl_dollars": 6.0, "pnl_percentage": 0.1428571, "win": True},
+                "exit_price": 24.0, "quantity": 2, "pnl_dollars": 6.0, "pnl_pct": 0.1428571, "win": True},
         ]).astype({"symbol": "string", "win": "boolean", "quantity": "float64"})
 
         pd.testing.assert_frame_equal(
@@ -661,7 +676,7 @@ class TestEventBacktesterIntegration(unittest.TestCase):
     def test_get_win_rate_short_trades(self):
         """Test getting win rate for short trades (SHORT -> LONG)."""
         # case 1: Pure short trades (SHORT -> LONG)
-        self.backtester.initialize_bank()
+        self.backtester.initialize_bank(cash=10000.0)
         orders = [
             Order("AAPL", Position.SHORT, 25.0, 1),  # Sell high
             Order("AAPL", Position.SHORT, 24.0, 2),  # Sell high
@@ -674,6 +689,9 @@ class TestEventBacktesterIntegration(unittest.TestCase):
             self.backtester._place_order(orders[i], pd.Timestamp(
                 2024, 1, 1, 10, 0, tz="America/New_York") + timedelta(hours=i))
 
+        # Set the backtester as having been run so get_win_rate works
+        self.backtester._EventBacktester__already_ran = True
+
         win_rate, exits = self.backtester.get_win_rate(
             percentage_threshold=0.0, return_net_profits=True)
 
@@ -683,7 +701,7 @@ class TestEventBacktesterIntegration(unittest.TestCase):
             "exit_price": [20.0, 22.0, 22.0],
             "quantity": [1.0, 2.0, 1.0],
             "pnl_dollars": [5.0, 4.0, 8.0],
-            "pnl_percentage": [0.2, 0.083333, 0.266667],
+            "pnl_pct": [0.2, 0.083333, 0.266667],
             "win": [True, True, True]
         }).astype({"symbol": "string", "win": "boolean"})
 
@@ -692,7 +710,7 @@ class TestEventBacktesterIntegration(unittest.TestCase):
         self.assertEqual(win_rate, 1.0)  # All short trades profitable
 
         # case 2: Mixed short trades with losses
-        self.backtester.initialize_bank()
+        self.backtester.initialize_bank(cash=10000.0)
         orders = [
             Order("AAPL", Position.SHORT, 25.0, 1),  # Sell high
             Order("AAPL", Position.SHORT, 24.0, 2),  # Sell high
@@ -705,6 +723,9 @@ class TestEventBacktesterIntegration(unittest.TestCase):
             self.backtester._place_order(orders[i], pd.Timestamp(
                 2024, 1, 1, 10, 0, tz="America/New_York") + timedelta(hours=i))
 
+        # Set the backtester as having been run so get_win_rate works
+        self.backtester._EventBacktester__already_ran = True
+
         win_rate, exits = self.backtester.get_win_rate(
             percentage_threshold=0.0, return_net_profits=True)
 
@@ -714,7 +735,7 @@ class TestEventBacktesterIntegration(unittest.TestCase):
             "exit_price": [22.0, 22.0, 18.0],
             "quantity": [1.0, 2.0, 1.0],
             "pnl_dollars": [3.0, 4.0, 2.0],
-            "pnl_percentage": [0.12, 0.083333, 0.1],
+            "pnl_pct": [0.12, 0.083333, 0.1],
             "win": [True, True, True]
         }).astype({"symbol": "string", "win": "boolean"})
 
@@ -725,7 +746,7 @@ class TestEventBacktesterIntegration(unittest.TestCase):
     def test_get_win_rate_mixed_trades(self):
         """Test getting win rate for mixed long and short trades."""
         # case 1: Mixed long and short trades
-        self.backtester.initialize_bank()
+        self.backtester.initialize_bank(cash=10000.0)
         orders = [
             # Long trades
             Order("AAPL", Position.LONG, 20.0, 1),
@@ -742,6 +763,9 @@ class TestEventBacktesterIntegration(unittest.TestCase):
             self.backtester._place_order(orders[i], pd.Timestamp(
                 2024, 1, 1, 10, 0, tz="America/New_York") + timedelta(hours=i))
 
+        # Set the backtester as having been run so get_win_rate works
+        self.backtester._EventBacktester__already_ran = True
+
         win_rate, exits = self.backtester.get_win_rate(
             percentage_threshold=0.0, return_net_profits=True)
 
@@ -752,7 +776,7 @@ class TestEventBacktesterIntegration(unittest.TestCase):
             "exit_price": [25.0, 24.0, 18.0],
             "quantity": [1.0, 1.0, 2.0],
             "pnl_dollars": [5.0, 3.0, 8.0],
-            "pnl_percentage": [0.25, 0.142857, 0.181818],
+            "pnl_pct": [0.25, 0.142857, 0.181818],
             "win": [True, True, True]
         }).astype({"symbol": "string", "win": "boolean"})
 
@@ -761,7 +785,7 @@ class TestEventBacktesterIntegration(unittest.TestCase):
         self.assertEqual(win_rate, 1.0)  # All trades profitable
 
         # case 2: Complex mixed scenario with multiple symbols
-        self.backtester.initialize_bank(cash=10000)
+        self.backtester.initialize_bank(cash=10000.0)
         orders = [
             # AAPL trades
             Order("AAPL", Position.LONG, 20.0, 1),
@@ -778,6 +802,9 @@ class TestEventBacktesterIntegration(unittest.TestCase):
         for i in range(len(orders)):
             self.backtester._place_order(orders[i], pd.Timestamp(
                 2024, 1, 1, 10, 0, tz="America/New_York") + timedelta(hours=i))
+
+        # Set the backtester as having been run so get_win_rate works
+        self.backtester._EventBacktester__already_ran = True
 
         win_rate, exits = self.backtester.get_win_rate(
             percentage_threshold=0.0, return_net_profits=True)
@@ -797,12 +824,14 @@ class TestEventBacktesterIntegration(unittest.TestCase):
     def test_get_win_rate_edge_cases(self):
         """Test edge cases for win rate calculation."""
         # case 1: No trades
-        self.backtester.initialize_bank()
+        self.backtester.initialize_bank(cash=10000.0)
+        # Set the backtester as having been run so get_win_rate works
+        self.backtester._EventBacktester__already_ran = True
         win_rate = self.backtester.get_win_rate()
         self.assertEqual(win_rate, 0.0)
 
         # case 2: Only long positions (no exits)
-        self.backtester.initialize_bank()
+        self.backtester.initialize_bank(cash=10000.0)
         orders = [
             Order("AAPL", Position.LONG, 20.0, 1),
             Order("AAPL", Position.LONG, 21.0, 1),
@@ -811,11 +840,13 @@ class TestEventBacktesterIntegration(unittest.TestCase):
             self.backtester._place_order(orders[i], pd.Timestamp(
                 2024, 1, 1, 10, 0, tz="America/New_York") + timedelta(hours=i))
 
+        # Set the backtester as having been run so get_win_rate works
+        self.backtester._EventBacktester__already_ran = True
         win_rate = self.backtester.get_win_rate()
         self.assertEqual(win_rate, 0.0)  # No completed trades
 
         # case 3: Only short positions (no exits)
-        self.backtester.initialize_bank()
+        self.backtester.initialize_bank(cash=10000.0)
         orders = [
             Order("AAPL", Position.SHORT, 25.0, 1),
             Order("AAPL", Position.SHORT, 24.0, 1),
@@ -824,11 +855,13 @@ class TestEventBacktesterIntegration(unittest.TestCase):
             self.backtester._place_order(orders[i], pd.Timestamp(
                 2024, 1, 1, 10, 0, tz="America/New_York") + timedelta(hours=i))
 
+        # Set the backtester as having been run so get_win_rate works
+        self.backtester._EventBacktester__already_ran = True
         win_rate = self.backtester.get_win_rate()
         self.assertEqual(win_rate, 0.0)  # No completed trades
 
         # case 4: Uneven quantities
-        self.backtester.initialize_bank()
+        self.backtester.initialize_bank(cash=10000.0)
         orders = [
             Order("AAPL", Position.LONG, 20.0, 3),   # Buy 3
             Order("AAPL", Position.SHORT, 22.0, 1),  # Sell 1
@@ -838,6 +871,8 @@ class TestEventBacktesterIntegration(unittest.TestCase):
             self.backtester._place_order(orders[i], pd.Timestamp(
                 2024, 1, 1, 10, 0, tz="America/New_York") + timedelta(hours=i))
 
+        # Set the backtester as having been run so get_win_rate works
+        self.backtester._EventBacktester__already_ran = True
         win_rate, exits = self.backtester.get_win_rate(
             percentage_threshold=0.0, return_net_profits=True)
 
@@ -848,7 +883,7 @@ class TestEventBacktesterIntegration(unittest.TestCase):
     def test_get_win_rate_with_threshold(self):
         """Test win rate calculation with different thresholds."""
         # Create trades with known profit percentages
-        self.backtester.initialize_bank()
+        self.backtester.initialize_bank(cash=10000.0)
         orders = [
             # Long trades with different profit levels
             Order("AAPL", Position.LONG, 100.0, 1),
@@ -867,6 +902,9 @@ class TestEventBacktesterIntegration(unittest.TestCase):
         for i in range(len(orders)):
             self.backtester._place_order(orders[i], pd.Timestamp(
                 2024, 1, 1, 10, 0, tz="America/New_York") + timedelta(hours=i))
+
+        # Set the backtester as having been run so get_win_rate works
+        self.backtester._EventBacktester__already_ran = True
 
         # Test with 0% threshold (all profitable trades are wins)
         win_rate_0 = self.backtester.get_win_rate(percentage_threshold=0.0)
@@ -931,9 +969,9 @@ class TestEventBacktesterEdgeCases(unittest.TestCase):
         self.assertEqual(backtester.get_state()["cash"], initial_cash)
 
     def test_overdraft_protection(self):
-        """Test overdraft protection when allow_overdraft=False."""
+        """Test overdraft protection when there's insufficient cash."""
         backtester = TestEventBacktester(
-            self.symbols, 100.0, allow_overdraft=False)
+            self.symbols, 100.0)
 
         # Try to place an order that exceeds available cash
         # Value = 250, but only 100 cash
@@ -964,6 +1002,8 @@ class TestEventBacktesterEdgeCases(unittest.TestCase):
 
     def test_empty_order_history_win_rate(self):
         """Test win rate calculation with empty order history."""
+        # Set the backtester as having been run so get_win_rate works
+        self.backtester._EventBacktester__already_ran = True
         win_rate = self.backtester.get_win_rate()
         self.assertEqual(win_rate, 0.0)
 
@@ -973,6 +1013,8 @@ class TestEventBacktesterEdgeCases(unittest.TestCase):
         timestamp = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
         self.backtester._place_order(order, timestamp)
 
+        # Set the backtester as having been run so get_win_rate works
+        self.backtester._EventBacktester__already_ran = True
         win_rate = self.backtester.get_win_rate()
         self.assertEqual(win_rate, 0.0)  # No completed trades
 
@@ -1153,7 +1195,7 @@ class TestEventBacktesterPlotting(unittest.TestCase):
         fig = self.backtester.plot_equity_curve(
             title=custom_title, save_plot=False, show_plot=False)
         self.assertIsNotNone(fig)
-        self.assertEqual(fig.axes[0].get_title(), custom_title)
+        self.assertEqual(fig._suptitle.get_text(), custom_title)
 
 
 class TestEventBacktesterAdvancedFeatures(unittest.TestCase):
@@ -1225,6 +1267,9 @@ class TestEventBacktesterAdvancedFeatures(unittest.TestCase):
             timestamp = pd.Timestamp(
                 2024, 1, 1, 10, 0, tz="America/New_York") + timedelta(hours=i)
             self.backtester._place_order(order, timestamp)
+
+        # Set the backtester as having been run so get_win_rate works
+        self.backtester._EventBacktester__already_ran = True
 
         # Test with 0% threshold (all profitable trades are wins)
         win_rate_0 = self.backtester.get_win_rate(percentage_threshold=0.0)
@@ -1553,6 +1598,8 @@ class TestEventBacktesterSharpeRatio(unittest.TestCase):
             'GOOGL': [0] * 253
         }, index=[0] + list(dates))
         self.backtester.state_history = state_history
+        # Set the backtester as having been run so calculate_sharpe_ratio works
+        self.backtester._EventBacktester__already_ran = True
         sharpe = self.backtester.calculate_sharpe_ratio(
             risk_free_rate=0.02, periods_per_year=252)
         self.assertIsInstance(sharpe, float)
@@ -1570,6 +1617,8 @@ class TestEventBacktesterSharpeRatio(unittest.TestCase):
             'GOOGL': [0, 0, 0]
         }, index=[0] + list(dates))
         self.backtester.state_history = state_history
+        # Set the backtester as having been run so calculate_sharpe_ratio works
+        self.backtester._EventBacktester__already_ran = True
         sharpe_high_rf = self.backtester.calculate_sharpe_ratio(
             risk_free_rate=0.05, periods_per_year=252)
         self.assertEqual(sharpe_high_rf, float('inf'))
@@ -1581,11 +1630,15 @@ class TestEventBacktesterSharpeRatio(unittest.TestCase):
             'GOOGL': [0, 0, 0]
         }, index=[0] + list(dates))
         self.backtester.state_history = state_history_neg
+        # Set the backtester as having been run so calculate_sharpe_ratio works
+        self.backtester._EventBacktester__already_ran = True
         sharpe_low_rf = self.backtester.calculate_sharpe_ratio(
             risk_free_rate=0.05, periods_per_year=252)
         self.assertEqual(sharpe_low_rf, float('-inf'))
         # Case 3: mean return == risk-free rate per period (expect 0.0)
         self.backtester.state_history = state_history
+        # Set the backtester as having been run so calculate_sharpe_ratio works
+        self.backtester._EventBacktester__already_ran = True
         # Calculate mean return from actual portfolio values
         pf = state_history['portfolio_value']
         returns_actual = pf[pf.index != 0].pct_change().dropna()
@@ -1597,6 +1650,8 @@ class TestEventBacktesterSharpeRatio(unittest.TestCase):
 
     def test_sharpe_ratio_insufficient_data(self):
         self.backtester.state_history = pd.DataFrame()
+        # Set the backtester as having been run so calculate_sharpe_ratio works
+        self.backtester._EventBacktester__already_ran = True
         with self.assertRaises(ValueError, msg="Insufficient data to calculate Sharpe ratio"):
             self.backtester.calculate_sharpe_ratio()
         self.backtester.state_history = pd.DataFrame({
@@ -1605,6 +1660,8 @@ class TestEventBacktesterSharpeRatio(unittest.TestCase):
             'AAPL': [0],
             'GOOGL': [0]
         }, index=[0])
+        # Set the backtester as having been run so calculate_sharpe_ratio works
+        self.backtester._EventBacktester__already_ran = True
         with self.assertRaises(ValueError, msg="Insufficient trading data to calculate Sharpe ratio"):
             self.backtester.calculate_sharpe_ratio()
         self.backtester.state_history = pd.DataFrame({
@@ -1613,6 +1670,8 @@ class TestEventBacktesterSharpeRatio(unittest.TestCase):
             'AAPL': [0, 0],
             'GOOGL': [0, 0]
         }, index=[0, pd.Timestamp('2024-01-01')])
+        # Set the backtester as having been run so calculate_sharpe_ratio works
+        self.backtester._EventBacktester__already_ran = True
         with self.assertRaises(ValueError, msg="No valid returns data to calculate Sharpe ratio"):
             self.backtester.calculate_sharpe_ratio()
 
@@ -1630,6 +1689,8 @@ class TestEventBacktesterSharpeRatio(unittest.TestCase):
             'GOOGL': [0] * 13
         }, index=[0] + list(dates))
         self.backtester.state_history = state_history
+        # Set the backtester as having been run so calculate_sharpe_ratio works
+        self.backtester._EventBacktester__already_ran = True
         sharpe_monthly = self.backtester.calculate_sharpe_ratio(
             risk_free_rate=0.02, periods_per_year=12)
         self.assertIsInstance(sharpe_monthly, float)
@@ -1654,6 +1715,8 @@ class TestEventBacktesterSharpeRatio(unittest.TestCase):
             'GOOGL': [0] * 253
         }, index=[0] + list(dates))
         self.backtester.state_history = state_history
+        # Set the backtester as having been run so calculate_sharpe_ratio works
+        self.backtester._EventBacktester__already_ran = True
         sharpe = self.backtester.calculate_sharpe_ratio(
             risk_free_rate=0.02, periods_per_year=252)
         self.assertLess(sharpe, 0)
@@ -1672,6 +1735,8 @@ class TestEventBacktesterSharpeRatio(unittest.TestCase):
             'GOOGL': [0] * 51
         }, index=[0] + list(dates))
         self.backtester.state_history = state_history
+        # Set the backtester as having been run so calculate_sharpe_ratio works
+        self.backtester._EventBacktester__already_ran = True
         test_bars_data = []
         for symbol in self.symbols:
             for date in dates:
@@ -1691,7 +1756,7 @@ class TestEventBacktesterSharpeRatio(unittest.TestCase):
         self.assertIn('sharpe_ratio', performance)
         self.assertIsInstance(performance['sharpe_ratio'], float)
         self.assertIn('return_on_investment', performance)
-        self.assertIn('max_drawdown_percentage', performance)
+        self.assertIn('max_drawdown_pct', performance)
         self.assertIn('win_rate', performance)
 
     def test_sharpe_ratio_edge_cases(self):
@@ -1708,6 +1773,8 @@ class TestEventBacktesterSharpeRatio(unittest.TestCase):
             'GOOGL': [0] * 253
         }, index=[0] + list(dates))
         self.backtester.state_history = state_history
+        # Set the backtester as having been run so calculate_sharpe_ratio works
+        self.backtester._EventBacktester__already_ran = True
         sharpe = self.backtester.calculate_sharpe_ratio(
             risk_free_rate=0.02, periods_per_year=252)
         self.assertIsInstance(sharpe, float)
@@ -1723,6 +1790,8 @@ class TestEventBacktesterSharpeRatio(unittest.TestCase):
             'GOOGL': [0] * 253
         }, index=[0] + list(dates))
         self.backtester.state_history = state_history_high_vol
+        # Set the backtester as having been run so calculate_sharpe_ratio works
+        self.backtester._EventBacktester__already_ran = True
         sharpe_high_vol = self.backtester.calculate_sharpe_ratio(
             risk_free_rate=0.02, periods_per_year=252)
         self.assertIsInstance(sharpe_high_vol, float)

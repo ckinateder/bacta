@@ -222,7 +222,7 @@ An example performance analysis output:
 trading_period_start       2025-06-05 11:00:00-04:00
 trading_period_end         2025-08-01 16:00:00-04:00
 return_on_investment                        1.120285
-max_drawdown_percentage                          0.0
+max_drawdown_pct                          0.0
 start_portfolio_value                         2000.0
 end_portfolio_value                        2240.5709
 win_rate                                    0.839506
