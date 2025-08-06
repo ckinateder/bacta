@@ -423,12 +423,12 @@ class EventBacktester(ABC):
 
         # calculate win rate
         win_rate, net_profits = self.get_win_rate(return_net_profits=True)
-        avg_trade_return = net_profits["net_profit_percentage"].mean()
-        largest_win = net_profits["net_profit_percentage"].max()
-        largest_loss = net_profits["net_profit_percentage"].min(
-        ) if net_profits["net_profit_percentage"].min() < 0 else 0
-        largest_win_dollars = net_profits["net_profit_dollars"].max()
-        largest_loss_dollars = net_profits["net_profit_dollars"].min()
+        avg_trade_return = net_profits["pnl_percentage"].mean()
+        largest_win = net_profits["pnl_percentage"].max()
+        largest_loss = net_profits["pnl_percentage"].min(
+        ) if net_profits["pnl_percentage"].min() < 0 else 0
+        largest_win_dollars = net_profits["pnl_dollars"].max()
+        largest_loss_dollars = net_profits["pnl_dollars"].min()
         max_consecutive_wins = net_profits["win"].astype(
             int).diff().ne(0).cumsum().max()
         max_consecutive_losses = net_profits["win"].astype(
@@ -590,7 +590,7 @@ class EventBacktester(ABC):
         ])
 
         self.get_win_rate() -> (0.6666666666666666,
-          symbol  entry_price  exit_price  quantity  net_profit_dollars  net_profit_percentage    win
+          symbol  entry_price  exit_price  quantity  pnl_dollars  pnl_percentage    win
         0   AAPL         20.0        24.0       1.0                 4.0               0.200000   True
         1   AAPL         21.0        22.0       2.0                 2.0               0.047619   True
         2   AAPL         25.0        22.0       1.0                -3.0              -0.120000   False
@@ -607,15 +607,15 @@ class EventBacktester(ABC):
         """
         net_profits = pd.DataFrame(
             columns=["symbol", "entry_price",
-                     "exit_price", "quantity", "net_profit_dollars", "net_profit_percentage", "win"],
+                     "exit_price", "quantity", "pnl_dollars", "pnl_percentage", "win"],
             index=[])
         net_profits = net_profits.astype({
             "symbol": "string",
             "entry_price": "float64",
             "exit_price": "float64",
             "quantity": "float64",
-            "net_profit_dollars": "float64",
-            "net_profit_percentage": "float64",
+            "pnl_dollars": "float64",
+            "pnl_percentage": "float64",
             "win": "boolean"
         })
 
@@ -656,9 +656,9 @@ class EventBacktester(ABC):
                     trade_quantity = min(entry_quantity, exit_quantity)
 
                     # Calculate profit
-                    net_profit_dollars = (
+                    pnl_dollars = (
                         exit_price - entry_price) * trade_quantity
-                    net_profit_percentage = (
+                    pnl_percentage = (
                         exit_price - entry_price) / entry_price
 
                     # Record the trade
@@ -667,11 +667,11 @@ class EventBacktester(ABC):
                     net_profits.loc[net_pointer, "exit_price"] = exit_price
                     net_profits.loc[net_pointer, "quantity"] = trade_quantity
                     net_profits.loc[net_pointer,
-                                    "net_profit_dollars"] = net_profit_dollars
+                                    "pnl_dollars"] = pnl_dollars
                     net_profits.loc[net_pointer,
-                                    "net_profit_percentage"] = net_profit_percentage
+                                    "pnl_percentage"] = pnl_percentage
                     net_profits.loc[net_pointer,
-                                    "win"] = net_profit_percentage > percentage_threshold
+                                    "win"] = pnl_percentage > percentage_threshold
 
                     # Update remaining quantities
                     long_orders.loc[long_index, "quantity"] -= trade_quantity
@@ -694,9 +694,9 @@ class EventBacktester(ABC):
                     trade_quantity = min(entry_quantity, exit_quantity)
 
                     # Calculate profit
-                    net_profit_dollars = (
+                    pnl_dollars = (
                         entry_price - exit_price) * trade_quantity
-                    net_profit_percentage = (
+                    pnl_percentage = (
                         entry_price - exit_price) / entry_price
 
                     # Record the trade
@@ -705,11 +705,11 @@ class EventBacktester(ABC):
                     net_profits.loc[net_pointer, "exit_price"] = exit_price
                     net_profits.loc[net_pointer, "quantity"] = trade_quantity
                     net_profits.loc[net_pointer,
-                                    "net_profit_dollars"] = net_profit_dollars
+                                    "pnl_dollars"] = pnl_dollars
                     net_profits.loc[net_pointer,
-                                    "net_profit_percentage"] = net_profit_percentage
+                                    "pnl_percentage"] = pnl_percentage
                     net_profits.loc[net_pointer,
-                                    "win"] = net_profit_percentage > percentage_threshold
+                                    "win"] = pnl_percentage > percentage_threshold
 
                     # Update remaining quantities
                     short_orders.loc[short_index, "quantity"] -= trade_quantity
@@ -1010,7 +1010,7 @@ class EventBacktester(ABC):
 
         # Subplot 3: Returns Distribution
         _, net_profits = self.get_win_rate(return_net_profits=True)
-        returns = net_profits["net_profit_percentage"]
+        returns = net_profits["pnl_percentage"]
         ax3.hist(returns, bins=10, alpha=0.7, color='green', edgecolor='black')
 
         # Mean line

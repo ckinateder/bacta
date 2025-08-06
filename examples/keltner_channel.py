@@ -112,3 +112,8 @@ if __name__ == "__main__":
         title="_".join(symbols)+" Keltner Strategy Trades")
     backtester.plot_equity_curve(
         title="_".join(symbols)+" Keltner Strategy Equity Curve")
+
+    # monte carlo analysis
+    print(dash("monte carlo analysis"))
+    print(backtester.monte_carlo_analysis(
+        num_simulations=1000))

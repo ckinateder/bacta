@@ -68,7 +68,7 @@ class EmaStrategy(EventBacktester):
         # if rsi is < 25 and short ema is < long ema, then long
         orders = []
         for symbol in self.active_symbols:
-            quantity = round(400 / close_prices[symbol], 4)
+            quantity = round(300 / close_prices[symbol], 4)
             if self.rsis[symbol][index] > 75 and self.short_emas[symbol][index] > self.long_emas[symbol][index]:
                 orders.append(Order(symbol, Position.SHORT,
                               close_prices[symbol], quantity))
@@ -121,3 +121,8 @@ if __name__ == "__main__":
         title="_".join(symbols)+" EMA RSI Strategy Trades")
     backtester.plot_equity_curve(
         title="_".join(symbols)+" EMA RSI Strategy Equity Curve")
+
+    # monte carlo analysis
+    print(dash("monte carlo analysis"))
+    print(backtester.monte_carlo_analysis(
+        num_simulations=1000))

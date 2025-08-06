@@ -551,8 +551,8 @@ class TestEventBacktesterIntegration(unittest.TestCase):
             "entry_price": [20.0, 21.0, 25.0],
             "exit_price": [24.0, 22.0, 22.0],
             "quantity": [1.0, 2.0, 1.0],
-            "net_profit_dollars": [4.0, 2.0, -3.0],
-            "net_profit_percentage": [0.2, 0.047619, -0.12],
+            "pnl_dollars": [4.0, 2.0, -3.0],
+            "pnl_percentage": [0.2, 0.047619, -0.12],
             "win": [True, True, False]
         }).astype({"symbol": "string", "win": "boolean"})
 
@@ -582,8 +582,8 @@ class TestEventBacktesterIntegration(unittest.TestCase):
             "entry_price": [20.0, 21.0, 25.0],
             "exit_price": [24.0, 24.0, 22.0],
             "quantity": [1.0, 2.0, 1.0],
-            "net_profit_dollars": [4.0, 6.0, -3.0],
-            "net_profit_percentage": [0.2, 0.142857, -0.12],
+            "pnl_dollars": [4.0, 6.0, -3.0],
+            "pnl_percentage": [0.2, 0.142857, -0.12],
             "win": [True, True, False]
         }).astype({"symbol": "string", "win": "boolean"})
         pd.testing.assert_frame_equal(
@@ -614,17 +614,17 @@ class TestEventBacktesterIntegration(unittest.TestCase):
 
         exits_should_be = pd.DataFrame([
             {"symbol": "AAPL", "entry_price": 20.0,
-                "exit_price": 24.0, "quantity": 1, "net_profit_dollars": 4.0, "net_profit_percentage": 0.2, "win": True},
+                "exit_price": 24.0, "quantity": 1, "pnl_dollars": 4.0, "pnl_percentage": 0.2, "win": True},
             {"symbol": "AAPL", "entry_price": 21.0,
-                "exit_price": 24.0, "quantity": 2, "net_profit_dollars": 6.0, "net_profit_percentage": 0.1428571, "win": True},
+                "exit_price": 24.0, "quantity": 2, "pnl_dollars": 6.0, "pnl_percentage": 0.1428571, "win": True},
             {"symbol": "AAPL", "entry_price": 25.0,
-                "exit_price": 22.0, "quantity": 1, "net_profit_dollars": -3.0, "net_profit_percentage": -0.12, "win": False},
+                "exit_price": 22.0, "quantity": 1, "pnl_dollars": -3.0, "pnl_percentage": -0.12, "win": False},
             {"symbol": "GOOGL", "entry_price": 17.0,
-                "exit_price": 19.0, "quantity": 1, "net_profit_dollars": 2.0, "net_profit_percentage": 0.11764705882352941, "win": True},
+                "exit_price": 19.0, "quantity": 1, "pnl_dollars": 2.0, "pnl_percentage": 0.11764705882352941, "win": True},
             {"symbol": "GOOGL", "entry_price": 11.0,
-                "exit_price": 19.0, "quantity": 2, "net_profit_dollars": 16.0, "net_profit_percentage": 0.7272727, "win": True},
+                "exit_price": 19.0, "quantity": 2, "pnl_dollars": 16.0, "pnl_percentage": 0.7272727, "win": True},
             {"symbol": "GOOGL", "entry_price": 15.0,
-                "exit_price": 16.0, "quantity": 1, "net_profit_dollars": 1.0, "net_profit_percentage": 0.06666666666666667, "win": True}
+                "exit_price": 16.0, "quantity": 1, "pnl_dollars": 1.0, "pnl_percentage": 0.06666666666666667, "win": True}
         ]).astype({"symbol": "string", "win": "boolean", "quantity": "float64"})
 
         pd.testing.assert_frame_equal(
@@ -649,9 +649,9 @@ class TestEventBacktesterIntegration(unittest.TestCase):
 
         exits_should_be = pd.DataFrame([
             {"symbol": "AAPL", "entry_price": 20.0,
-                "exit_price": 24.0, "quantity": 1, "net_profit_dollars": 4.0, "net_profit_percentage": 0.2, "win": True},
+                "exit_price": 24.0, "quantity": 1, "pnl_dollars": 4.0, "pnl_percentage": 0.2, "win": True},
             {"symbol": "AAPL", "entry_price": 21.0,
-                "exit_price": 24.0, "quantity": 2, "net_profit_dollars": 6.0, "net_profit_percentage": 0.1428571, "win": True},
+                "exit_price": 24.0, "quantity": 2, "pnl_dollars": 6.0, "pnl_percentage": 0.1428571, "win": True},
         ]).astype({"symbol": "string", "win": "boolean", "quantity": "float64"})
 
         pd.testing.assert_frame_equal(
@@ -682,8 +682,8 @@ class TestEventBacktesterIntegration(unittest.TestCase):
             "entry_price": [25.0, 24.0, 30.0],
             "exit_price": [20.0, 22.0, 22.0],
             "quantity": [1.0, 2.0, 1.0],
-            "net_profit_dollars": [5.0, 4.0, 8.0],
-            "net_profit_percentage": [0.2, 0.083333, 0.266667],
+            "pnl_dollars": [5.0, 4.0, 8.0],
+            "pnl_percentage": [0.2, 0.083333, 0.266667],
             "win": [True, True, True]
         }).astype({"symbol": "string", "win": "boolean"})
 
@@ -713,8 +713,8 @@ class TestEventBacktesterIntegration(unittest.TestCase):
             "entry_price": [25.0, 24.0, 20.0],
             "exit_price": [22.0, 22.0, 18.0],
             "quantity": [1.0, 2.0, 1.0],
-            "net_profit_dollars": [3.0, 4.0, 2.0],
-            "net_profit_percentage": [0.12, 0.083333, 0.1],
+            "pnl_dollars": [3.0, 4.0, 2.0],
+            "pnl_percentage": [0.12, 0.083333, 0.1],
             "win": [True, True, True]
         }).astype({"symbol": "string", "win": "boolean"})
 
@@ -751,8 +751,8 @@ class TestEventBacktesterIntegration(unittest.TestCase):
             "entry_price": [20.0, 21.0, 22.0],
             "exit_price": [25.0, 24.0, 18.0],
             "quantity": [1.0, 1.0, 2.0],
-            "net_profit_dollars": [5.0, 3.0, 8.0],
-            "net_profit_percentage": [0.25, 0.142857, 0.181818],
+            "pnl_dollars": [5.0, 3.0, 8.0],
+            "pnl_percentage": [0.25, 0.142857, 0.181818],
             "win": [True, True, True]
         }).astype({"symbol": "string", "win": "boolean"})
 
