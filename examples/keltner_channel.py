@@ -115,5 +115,4 @@ if __name__ == "__main__":
 
     # monte carlo analysis
     print(dash("monte carlo analysis"))
-    print(backtester.monte_carlo_analysis(
-        num_simulations=1000))
+    backtester.monte_carlo_trade_analysis(num_simulations=1000)

@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from enum import Enum
+from typing import List
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -7,15 +8,14 @@ import pandas as pd
 from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
 
-from __init__ import *
-from utilities import get_logger, is_market_open, floor_decimal
-from utilities.plotting import DEFAULT_FIGSIZE, plt_show
+from bacta.utilities import get_logger, is_market_open, floor_decimal
+from bacta.utilities.plotting import DEFAULT_FIGSIZE, plt_show
 
 # Get logger for this module
 logger = get_logger()
 
 # get version from pyproject.toml
-VERSION = "0.3.0"
+VERSION = "0.4.2"
 
 
 class Position(Enum):
@@ -113,6 +113,7 @@ class EventBacktester(ABC):
         logger.debug(
             f"Initializing backtester with active symbols: {active_symbols}, cash: {cash}, allow_short: {allow_short}, min_cash_balance: {min_cash_balance}, min_trade_value: {min_trade_value}, market_hours_only: {market_hours_only}")
         self.active_symbols = active_symbols
+        self.initial_cash = cash
         self.initialize_bank(cash)
         self.allow_short = allow_short
         self.min_cash_balance = min_cash_balance
@@ -127,8 +128,15 @@ class EventBacktester(ABC):
         self.train_bars = None
         self.test_bars = None
         # self.full_bars = None
+        self.__already_ran = False
 
-    def initialize_bank(self, cash: float = 100):
+    def reset(self) -> None:
+        """Reset the backtester.
+        """
+        self.__already_ran = False
+        self.initialize_bank(self.initial_cash)
+
+    def initialize_bank(self, cash: float) -> None:
         """Initialize the bank and the state history.
 
         Args:
@@ -138,10 +146,12 @@ class EventBacktester(ABC):
             columns=["cash", "portfolio_value", *self.active_symbols])
         self.state_history.loc[0] = [
             cash, cash, *[0] * len(self.active_symbols)]
-
-        # history of orders
         self.order_history = pd.DataFrame(
             columns=["symbol", "position", "price", "quantity"])
+        assert len(self.order_history) == 0, "Order history must be empty"
+        assert len(
+            self.state_history) == 1, "State history must be empty except for the initial state"
+        assert self.state_history.index.is_unique, "State history must have a unique index"
 
     def _update_state(self, symbol: str, price: float, quantity: float, order: Position, index: pd.Timestamp):
         """Update the state of the backtester.
@@ -310,6 +320,22 @@ class EventBacktester(ABC):
                     self._place_order(
                         Order(symbol, Position.LONG, prices[symbol], abs(position)), index)
 
+    def _validate_bars(self, bars: pd.DataFrame):
+        """
+        Validate the bars.
+        """
+        assert bars.index.nlevels == 2, "Bars must have a multi-index with (symbol, timestamp) index"
+        assert bars.index.get_level_values(0).unique().isin(
+            self.active_symbols).all(), "All symbols must be in the bars"
+        for symbol in self.active_symbols:
+            symbol_bars = bars.xs(symbol, level=0)
+            assert symbol_bars.index.is_monotonic_increasing, f"Bars for {symbol} must have a monotonic increasing timestamp"
+            assert symbol_bars.index.is_unique, f"Bars for {symbol} must have a unique timestamp"
+        assert isinstance(bars.index.get_level_values(
+            1)[0], pd.Timestamp), "Bars must have a timestamp index"
+
+        return True
+
     def run_backtest(self, test_bars: pd.DataFrame, close_positions: bool = True, disable_tqdm: bool = False):
         """
         Run a single period of the backtest over the given dataframe.
@@ -321,16 +347,14 @@ class EventBacktester(ABC):
             close_positions (bool, optional): Whether to close positions at the end of the backtest. Defaults to True.
             disable_tqdm (bool, optional): Whether to disable the tqdm progress bar. Defaults to False.
         """
+        if self.__already_ran:
+            logger.warning(
+                "Backtester has already been run. Run self.reset() to reset the backtester.")
+            return
+        self.__already_ran = True
+
         # check if the bars are in the correct format
-        assert test_bars.index.nlevels == 2, "Bars must have a multi-index with (symbol, timestamp) index"
-        assert test_bars.index.get_level_values(0).unique().isin(
-            self.active_symbols).all(), "All symbols must be in the bars"
-        for symbol in self.active_symbols:
-            symbol_bars = test_bars.xs(symbol, level=0)
-            assert symbol_bars.index.is_monotonic_increasing, f"Bars for {symbol} must have a monotonic increasing timestamp"
-            assert symbol_bars.index.is_unique, f"Bars for {symbol} must have a unique timestamp"
-        assert isinstance(test_bars.index.get_level_values(
-            1)[0], pd.Timestamp), "Bars must have a timestamp index"
+        self._validate_bars(test_bars)
 
         # store
         self.test_bars = test_bars
@@ -373,10 +397,10 @@ class EventBacktester(ABC):
 
                 if not self.market_hours_only or is_market_open(index):
                     # make a decision
-                    order = self.generate_order(current_bar, index)
+                    orders = self.generate_orders(current_bar, index)
 
                     # place the order if not None
-                    if order is not None:
+                    for order in orders:
                         self._place_order(order, index)
 
                 # Update portfolio value with current close prices
@@ -408,6 +432,11 @@ class EventBacktester(ABC):
         """
         Analyze the performance of the backtest.
         """
+        if not self.__already_ran:
+            logger.warning(
+                "Backtester has not been run. Run self.run_backtest() to run the backtest.")
+            return pd.Series()
+
         # get the state history
         state_history = self.get_state_history()
         start_portfolio_value = state_history.iloc[0]["portfolio_value"]
@@ -460,6 +489,8 @@ class EventBacktester(ABC):
             "end_portfolio_value": end_portfolio_value,
             "min_portfolio_value": state_history["portfolio_value"].min().round(2),
             "max_portfolio_value": state_history["portfolio_value"].max().round(2),
+            "min_cash_balance": state_history["cash"].min().round(2),
+            "max_cash_balance": state_history["cash"].max().round(2),
             "buy_and_hold_return": combined_returns.iloc[-1],
             "sharpe_ratio": sharpe_ratio,
             "win_rate": win_rate,
@@ -481,29 +512,36 @@ class EventBacktester(ABC):
         Pretty print the performance of the backtest.
         """
         performance = self.analyze_performance()
-        output = f"""Backtest Performance:
-- Return on Investment: {(performance["return_on_investment"]-1)*100:.2f}%
-- vs. Buy and Hold Return: {(performance["buy_and_hold_return"]-1)*100:.2f}%
-- Sharpe Ratio: {performance["sharpe_ratio"]:.2f}
-- Max Drawdown Percentage: {(performance["max_drawdown_pct"])*100:.2f}%\n
-- Start Portfolio Value: ${performance["start_portfolio_value"]:.2f}
-- End Portfolio Value: ${performance["end_portfolio_value"]:.2f}
-- Min Portfolio Value: ${performance["min_portfolio_value"]:.2f}
-- Max Portfolio Value: ${performance["max_portfolio_value"]:.2f}
-- Win Rate: {performance["win_rate"]*100:.2f}%\n
-- Number of Orders: {performance["number_of_orders"]}
-- Number of Winning Trades: {performance["number_of_winning_trades"]}
-- Number of Losing Trades: {performance["number_of_losing_trades"]}
-- Avg Trade Return: {performance["avg_trade_return"]*100:.2f}%
-- Largest Win: {performance["largest_win"]*100:.2f}% (${performance["largest_win_dollars"]:.2f})
-- Largest Loss: {performance["largest_loss"]*100:.2f}% (${performance["largest_loss_dollars"]:.2f})
-- Max Consecutive Wins: {performance["max_consecutive_wins"]}
-- Max Consecutive Losses: {performance["max_consecutive_losses"]}\n
-- Trading Period Start: {performance["trading_period_start"]}
-- Trading Period End: {performance["trading_period_end"]}
-- Trading Period Length: {performance["trading_period_length"]}
-- Time in Market: {performance["time_in_market"]*100:.2f}%
-        """
+        output_lines = [
+            f"Backtest Performance:",
+            f"- Return on Investment: {(performance['return_on_investment']-1)*100:.2f}%",
+            f"- vs. Buy and Hold Return: {(performance['buy_and_hold_return']-1)*100:.2f}%",
+            f"- Sharpe Ratio: {performance['sharpe_ratio']:.2f}",
+            f"- Max Drawdown Percentage: {(performance['max_drawdown_pct'])*100:.2f}%",
+            "",
+            f"- Start Portfolio Value: ${performance['start_portfolio_value']:.2f}",
+            f"- End Portfolio Value: ${performance['end_portfolio_value']:.2f}",
+            f"- Min Portfolio Value: ${performance['min_portfolio_value']:.2f}",
+            f"- Max Portfolio Value: ${performance['max_portfolio_value']:.2f}",
+            f"- Min Cash Balance: ${performance['min_cash_balance']:.2f}",
+            f"- Max Cash Balance: ${performance['max_cash_balance']:.2f}",
+            f"- Win Rate: {performance['win_rate']*100:.2f}%",
+            "",
+            f"- Number of Orders: {performance['number_of_orders']}",
+            f"- Number of Winning Trades: {performance['number_of_winning_trades']}",
+            f"- Number of Losing Trades: {performance['number_of_losing_trades']}",
+            f"- Avg Trade Return: {performance['avg_trade_return']*100:.2f}%",
+            f"- Largest Win: {performance['largest_win']*100:.2f}% (${performance['largest_win_dollars']:.2f})",
+            f"- Largest Loss: {performance['largest_loss']*100:.2f}% (${performance['largest_loss_dollars']:.2f})",
+            f"- Max Consecutive Wins: {performance['max_consecutive_wins']}",
+            f"- Max Consecutive Losses: {performance['max_consecutive_losses']}",
+            "",
+            f"- Trading Period Start: {performance['trading_period_start']}",
+            f"- Trading Period End: {performance['trading_period_end']}",
+            f"- Trading Period Length: {performance['trading_period_length']}",
+            f"- Time in Market: {performance['time_in_market']*100:.2f}%"
+        ]
+        output = "\n".join(output_lines)
         return output
 
     def calculate_sharpe_ratio(self, risk_free_rate: float = 0.0, periods_per_year: int = 252) -> float:
@@ -524,6 +562,11 @@ class EventBacktester(ABC):
         Raises:
             ValueError: If there's insufficient data to calculate the Sharpe ratio
         """
+        if not self.__already_ran:
+            logger.warning(
+                "Backtester has not been run. Run self.run_backtest() to run the backtest.")
+            return 0.0
+
         state_history = self.get_state_history()
 
         if state_history.empty or len(state_history) < 2:
@@ -605,6 +648,11 @@ class EventBacktester(ABC):
         Returns:
             tuple[float, pd.DataFrame]: win rate and net profits if return_net_profits is True, otherwise just the win rate
         """
+        if not self.__already_ran:
+            logger.warning(
+                "Backtester has not been run. Run self.run_backtest() to run the backtest.")
+            return 0.0, pd.DataFrame()
+
         net_profits = pd.DataFrame(
             columns=["symbol", "entry_price",
                      "exit_price", "quantity", "pnl_dollars", "pnl_pct", "win"],
@@ -658,8 +706,7 @@ class EventBacktester(ABC):
                     # Calculate profit
                     pnl_dollars = (
                         exit_price - entry_price) * trade_quantity
-                    pnl_pct = (
-                        exit_price - entry_price) / entry_price
+                    pnl_pct = (exit_price - entry_price) / entry_price
 
                     # Record the trade
                     net_profits.loc[net_pointer, "symbol"] = symbol
@@ -738,6 +785,70 @@ class EventBacktester(ABC):
         else:
             return win_rate
 
+    def monte_carlo_trade_analysis(self, num_simulations: int = 1000):
+        """
+        Perform a Monte Carlo analysis of the backtest. Bootstrap the trades and run the backtest on the synthetic data.
+        """
+        if not self.__already_ran:
+            logger.warning(
+                "Backtester has not been run. Run self.run_backtest() to run the backtest.")
+            return
+        trades = self.get_win_rate(return_net_profits=True)[1]
+
+        if trades.empty:
+            logger.warning("No trades found for Monte Carlo analysis")
+            return pd.DataFrame()
+
+        simulated_results = pd.DataFrame(
+            columns=["win_rate", "pnl_dollars", "pnl_pct"], index=pd.Index(range(num_simulations), name="simulation"))
+
+        simulations = []
+
+        for i in range(num_simulations):
+            # shuffle the trades
+            shuffled_trades = trades.sample(
+                frac=1, replace=True).reset_index(drop=True)
+
+            equity = self.initial_cash
+            equity_pct = 1
+
+            equity_curve = [equity]
+            for j in range(len(shuffled_trades)):
+                equity += shuffled_trades.iloc[j]["pnl_dollars"]
+                equity_pct *= (1 + shuffled_trades.iloc[j]["pnl_pct"])
+
+                equity_curve.append(equity)
+
+            simulated_results.loc[i, "win_rate"] = len(
+                [profit for profit in shuffled_trades["win"] if profit]) / len(shuffled_trades)
+            simulated_results.loc[i, "pnl_dollars"] = equity
+            simulated_results.loc[i, "pnl_pct"] = 1+(equity_pct/100)
+            simulations.append(equity_curve)
+        # get results
+        drawdown = simulated_results["pnl_dollars"].cummax(
+        ) - simulated_results["pnl_dollars"]
+        summary_stats = pd.Series({
+            "median_final_equity": np.median(simulated_results["pnl_dollars"]),
+            "median_final_equity_pct": np.median(simulated_results["pnl_pct"]),
+            "median_drawdown_pct": np.median(drawdown/simulated_results["pnl_dollars"]),
+            "worst_case": np.min(simulated_results["pnl_dollars"]),
+            "worst_case_pct": np.min(simulated_results["pnl_pct"]),
+            "best_case": np.max(simulated_results["pnl_dollars"]),
+            "best_case_pct": np.max(simulated_results["pnl_pct"]),
+            "median_win_rate": np.median(simulated_results["win_rate"]),
+        })
+
+        """
+        # Plot histogram of final equities
+        plt.hist(simulated_results["pnl_dollars"], bins=50, edgecolor='black')
+        plt.title("Monte Carlo Simulation: Final Equity Distribution")
+        plt.xlabel("Final Equity")
+        plt.ylabel("Frequency")
+        plt_show(prefix="monte_carlo_analysis_final_equity_distribution")
+        """
+
+        return simulated_results, summary_stats
+
     # getters
 
     def get_state(self) -> pd.Series:
@@ -797,6 +908,11 @@ class EventBacktester(ABC):
             show_plot (bool): Whether to display the plot
             title (str): Title for the plot
         """
+        if not self.__already_ran:
+            logger.warning(
+                "Backtester has not been run. Run self.run_backtest() to run the backtest.")
+            return
+
         state_history = self.get_state_history()
 
         if state_history.empty:
@@ -961,6 +1077,11 @@ class EventBacktester(ABC):
             show_plot (bool): Whether to display the plot
             title (str): Title for the plot
         """
+        if not self.__already_ran:
+            logger.warning(
+                "Backtester has not been run. Run self.run_backtest() to run the backtest.")
+            return
+
         state_history = self.get_state_history()
 
         if state_history.empty:
@@ -1120,6 +1241,11 @@ class EventBacktester(ABC):
             show_plot (bool): Whether to display the plot
             title (str): Title for the plot
         """
+        if not self.__already_ran:
+            logger.warning(
+                "Backtester has not been run. Run self.run_backtest() to run the backtest.")
+            return
+
         order_history = self.get_history()
 
         if order_history.empty:
@@ -1296,7 +1422,7 @@ class EventBacktester(ABC):
         pass
 
     @abstractmethod
-    def generate_order(self, bars: pd.DataFrame, index: pd.Timestamp) -> Order:
+    def generate_orders(self, bars: pd.DataFrame, index: pd.Timestamp) -> list[Order]:
         """
         Make a decision based on the current prices. This is meant to be overridden by the child class.
         This will place an order if needed.
@@ -1305,7 +1431,7 @@ class EventBacktester(ABC):
             bars: DataFrame with bars of the assets. Multi-index with (symbol, timestamp) index and OHLCV columns.
             index: The index point of the bars.
         Returns:
-            Position: The order to place.
+            list[Order]: The orders to place.
         """
         raise NotImplementedError(
             "This method must be overridden by the child class.")

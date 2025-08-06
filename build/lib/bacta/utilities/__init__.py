@@ -12,9 +12,6 @@ from math import floor
 nyse_holidays = holidays.NYSE()  # this is a dict-like object
 eastern = pytz.timezone("US/Eastern")  # this is a timezone object
 
-sys.path.append(os.path.dirname(os.path.dirname(
-    os.path.dirname(os.path.abspath(__file__)))))
-
 # Create a logger for the utilities module
 logger = get_logger()
 

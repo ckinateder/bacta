@@ -195,6 +195,8 @@ def split_multi_index_bars_train_test(bars: pd.DataFrame, split_ratio: float = 0
     # recombine the bars into a multi-index dataframe
     train_bars = pd.concat(train_bars, axis=0)
     test_bars = pd.concat(test_bars, axis=0)
+    train_bars.index.names = ["symbol", "timestamp"]
+    test_bars.index.names = ["symbol", "timestamp"]
     return train_bars, test_bars
 
 

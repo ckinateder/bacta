@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from enum import Enum
+from typing import List
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -14,7 +15,7 @@ from bacta.utilities.plotting import DEFAULT_FIGSIZE, plt_show
 logger = get_logger()
 
 # get version from pyproject.toml
-VERSION = "0.4.1"
+VERSION = "0.4.2"
 
 
 class Position(Enum):
@@ -147,6 +148,10 @@ class EventBacktester(ABC):
             cash, cash, *[0] * len(self.active_symbols)]
         self.order_history = pd.DataFrame(
             columns=["symbol", "position", "price", "quantity"])
+        assert len(self.order_history) == 0, "Order history must be empty"
+        assert len(
+            self.state_history) == 1, "State history must be empty except for the initial state"
+        assert self.state_history.index.is_unique, "State history must have a unique index"
 
     def _update_state(self, symbol: str, price: float, quantity: float, order: Position, index: pd.Timestamp):
         """Update the state of the backtester.
@@ -315,6 +320,22 @@ class EventBacktester(ABC):
                     self._place_order(
                         Order(symbol, Position.LONG, prices[symbol], abs(position)), index)
 
+    def _validate_bars(self, bars: pd.DataFrame):
+        """
+        Validate the bars.
+        """
+        assert bars.index.nlevels == 2, "Bars must have a multi-index with (symbol, timestamp) index"
+        assert bars.index.get_level_values(0).unique().isin(
+            self.active_symbols).all(), "All symbols must be in the bars"
+        for symbol in self.active_symbols:
+            symbol_bars = bars.xs(symbol, level=0)
+            assert symbol_bars.index.is_monotonic_increasing, f"Bars for {symbol} must have a monotonic increasing timestamp"
+            assert symbol_bars.index.is_unique, f"Bars for {symbol} must have a unique timestamp"
+        assert isinstance(bars.index.get_level_values(
+            1)[0], pd.Timestamp), "Bars must have a timestamp index"
+
+        return True
+
     def run_backtest(self, test_bars: pd.DataFrame, close_positions: bool = True, disable_tqdm: bool = False):
         """
         Run a single period of the backtest over the given dataframe.
@@ -333,15 +354,7 @@ class EventBacktester(ABC):
         self.__already_ran = True
 
         # check if the bars are in the correct format
-        assert test_bars.index.nlevels == 2, "Bars must have a multi-index with (symbol, timestamp) index"
-        assert test_bars.index.get_level_values(0).unique().isin(
-            self.active_symbols).all(), "All symbols must be in the bars"
-        for symbol in self.active_symbols:
-            symbol_bars = test_bars.xs(symbol, level=0)
-            assert symbol_bars.index.is_monotonic_increasing, f"Bars for {symbol} must have a monotonic increasing timestamp"
-            assert symbol_bars.index.is_unique, f"Bars for {symbol} must have a unique timestamp"
-        assert isinstance(test_bars.index.get_level_values(
-            1)[0], pd.Timestamp), "Bars must have a timestamp index"
+        self._validate_bars(test_bars)
 
         # store
         self.test_bars = test_bars
@@ -499,31 +512,36 @@ class EventBacktester(ABC):
         Pretty print the performance of the backtest.
         """
         performance = self.analyze_performance()
-        output = f"""Backtest Performance:
-- Return on Investment: {(performance["return_on_investment"]-1)*100:.2f}%
-- vs. Buy and Hold Return: {(performance["buy_and_hold_return"]-1)*100:.2f}%
-- Sharpe Ratio: {performance["sharpe_ratio"]:.2f}
-- Max Drawdown Percentage: {(performance["max_drawdown_pct"])*100:.2f}%\n
-- Start Portfolio Value: ${performance["start_portfolio_value"]:.2f}
-- End Portfolio Value: ${performance["end_portfolio_value"]:.2f}
-- Min Portfolio Value: ${performance["min_portfolio_value"]:.2f}
-- Max Portfolio Value: ${performance["max_portfolio_value"]:.2f}
-- Min Cash Balance: ${performance["min_cash_balance"]:.2f}
-- Max Cash Balance: ${performance["max_cash_balance"]:.2f}
-- Win Rate: {performance["win_rate"]*100:.2f}%\n
-- Number of Orders: {performance["number_of_orders"]}
-- Number of Winning Trades: {performance["number_of_winning_trades"]}
-- Number of Losing Trades: {performance["number_of_losing_trades"]}
-- Avg Trade Return: {performance["avg_trade_return"]*100:.2f}%
-- Largest Win: {performance["largest_win"]*100:.2f}% (${performance["largest_win_dollars"]:.2f})
-- Largest Loss: {performance["largest_loss"]*100:.2f}% (${performance["largest_loss_dollars"]:.2f})
-- Max Consecutive Wins: {performance["max_consecutive_wins"]}
-- Max Consecutive Losses: {performance["max_consecutive_losses"]}\n
-- Trading Period Start: {performance["trading_period_start"]}
-- Trading Period End: {performance["trading_period_end"]}
-- Trading Period Length: {performance["trading_period_length"]}
-- Time in Market: {performance["time_in_market"]*100:.2f}%
-        """
+        output_lines = [
+            f"Backtest Performance:",
+            f"- Return on Investment: {(performance['return_on_investment']-1)*100:.2f}%",
+            f"- vs. Buy and Hold Return: {(performance['buy_and_hold_return']-1)*100:.2f}%",
+            f"- Sharpe Ratio: {performance['sharpe_ratio']:.2f}",
+            f"- Max Drawdown Percentage: {(performance['max_drawdown_pct'])*100:.2f}%",
+            "",
+            f"- Start Portfolio Value: ${performance['start_portfolio_value']:.2f}",
+            f"- End Portfolio Value: ${performance['end_portfolio_value']:.2f}",
+            f"- Min Portfolio Value: ${performance['min_portfolio_value']:.2f}",
+            f"- Max Portfolio Value: ${performance['max_portfolio_value']:.2f}",
+            f"- Min Cash Balance: ${performance['min_cash_balance']:.2f}",
+            f"- Max Cash Balance: ${performance['max_cash_balance']:.2f}",
+            f"- Win Rate: {performance['win_rate']*100:.2f}%",
+            "",
+            f"- Number of Orders: {performance['number_of_orders']}",
+            f"- Number of Winning Trades: {performance['number_of_winning_trades']}",
+            f"- Number of Losing Trades: {performance['number_of_losing_trades']}",
+            f"- Avg Trade Return: {performance['avg_trade_return']*100:.2f}%",
+            f"- Largest Win: {performance['largest_win']*100:.2f}% (${performance['largest_win_dollars']:.2f})",
+            f"- Largest Loss: {performance['largest_loss']*100:.2f}% (${performance['largest_loss_dollars']:.2f})",
+            f"- Max Consecutive Wins: {performance['max_consecutive_wins']}",
+            f"- Max Consecutive Losses: {performance['max_consecutive_losses']}",
+            "",
+            f"- Trading Period Start: {performance['trading_period_start']}",
+            f"- Trading Period End: {performance['trading_period_end']}",
+            f"- Trading Period Length: {performance['trading_period_length']}",
+            f"- Time in Market: {performance['time_in_market']*100:.2f}%"
+        ]
+        output = "\n".join(output_lines)
         return output
 
     def calculate_sharpe_ratio(self, risk_free_rate: float = 0.0, periods_per_year: int = 252) -> float:
@@ -767,9 +785,9 @@ class EventBacktester(ABC):
         else:
             return win_rate
 
-    def monte_carlo_analysis(self, num_simulations: int = 1000):
+    def monte_carlo_trade_analysis(self, num_simulations: int = 1000):
         """
-        Perform a Monte Carlo analysis of the backtest. Get the trades and shuffle them.
+        Perform a Monte Carlo analysis of the backtest. Bootstrap the trades and run the backtest on the synthetic data.
         """
         if not self.__already_ran:
             logger.warning(
@@ -820,21 +838,14 @@ class EventBacktester(ABC):
             "median_win_rate": np.median(simulated_results["win_rate"]),
         })
 
+        """
         # Plot histogram of final equities
         plt.hist(simulated_results["pnl_dollars"], bins=50, edgecolor='black')
         plt.title("Monte Carlo Simulation: Final Equity Distribution")
         plt.xlabel("Final Equity")
         plt.ylabel("Frequency")
         plt_show(prefix="monte_carlo_analysis_final_equity_distribution")
-
-        # Plot a few sample equity curves
-        plt.figure()
-        for i in range(50):
-            plt.plot(simulations[i], alpha=0.5)
-        plt.title("Sample Equity Curves (Compounded Returns)")
-        plt.xlabel("Trade Number")
-        plt.ylabel("Equity")
-        plt_show(prefix="monte_carlo_analysis_equity_curves")
+        """
 
         return simulated_results, summary_stats
 
