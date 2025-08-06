@@ -105,7 +105,6 @@ if __name__ == "__main__":
     print(backtester.pretty_format_performance())
 
     # Plot the results
-    print("plotting...")
     backtester.plot_performance_analysis(
         title="_".join(symbols)+" Keltner Strategy Performance")
     backtester.plot_trade_history(
@@ -115,4 +114,4 @@ if __name__ == "__main__":
 
     # monte carlo analysis
     print(dash("monte carlo analysis"))
-    backtester.monte_carlo_trade_analysis(num_simulations=1000)
+    print(backtester.monte_carlo_trade_analysis(num_simulations=1000)[1])

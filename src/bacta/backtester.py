@@ -785,10 +785,20 @@ class EventBacktester(ABC):
         else:
             return win_rate
 
-    def monte_carlo_trade_analysis(self, num_simulations: int = 1000):
+    def monte_carlo_trade_analysis(self, num_simulations: int = 1000, noise_std: float = 0.01):
         """
-        Perform a Monte Carlo analysis of the backtest. Bootstrap the trades and run the backtest on the synthetic data.
+        Perform a Monte Carlo analysis of the backtest. 
+        The backtest must have been run first. 
+        This method will bootstrap the list of completed trades and run the backtest on the synthetic data.
+        The synthetic data will have noise added to the pnl_dollars and pnl_pct if noise_std is greater than 0.
+
+        Args:
+            num_simulations (int, optional): Number of simulations to run. Defaults to 1000.
+            noise_std (float, optional): Standard deviation of the noise to add to the trades. Defaults to 0.01.
+        Returns:
+            tuple[pd.DataFrame, pd.Series]: simulated results and summary statistics
         """
+
         if not self.__already_ran:
             logger.warning(
                 "Backtester has not been run. Run self.run_backtest() to run the backtest.")
@@ -814,8 +824,10 @@ class EventBacktester(ABC):
 
             equity_curve = [equity]
             for j in range(len(shuffled_trades)):
-                equity += shuffled_trades.iloc[j]["pnl_dollars"]
-                equity_pct *= (1 + shuffled_trades.iloc[j]["pnl_pct"])
+                equity += shuffled_trades.iloc[j]["pnl_dollars"] * \
+                    (1 + np.random.normal(0, noise_std))
+                equity_pct *= (1 + shuffled_trades.iloc[j]["pnl_pct"] *
+                               (1 + np.random.normal(0, noise_std)))
 
                 equity_curve.append(equity)
 
@@ -828,12 +840,12 @@ class EventBacktester(ABC):
         drawdown = simulated_results["pnl_dollars"].cummax(
         ) - simulated_results["pnl_dollars"]
         summary_stats = pd.Series({
-            "median_final_equity": np.median(simulated_results["pnl_dollars"]),
+            # "median_final_equity": np.median(simulated_results["pnl_dollars"]),
             "median_final_equity_pct": np.median(simulated_results["pnl_pct"]),
             "median_drawdown_pct": np.median(drawdown/simulated_results["pnl_dollars"]),
-            "worst_case": np.min(simulated_results["pnl_dollars"]),
+            # "worst_case": np.min(simulated_results["pnl_dollars"]),
             "worst_case_pct": np.min(simulated_results["pnl_pct"]),
-            "best_case": np.max(simulated_results["pnl_dollars"]),
+            # "best_case": np.max(simulated_results["pnl_dollars"]),
             "best_case_pct": np.max(simulated_results["pnl_pct"]),
             "median_win_rate": np.median(simulated_results["win_rate"]),
         })
