@@ -6,7 +6,7 @@ from alpaca.data.historical.crypto import CryptoHistoricalDataClient
 
 
 from alpaca.data.requests import StockBarsRequest, CryptoBarsRequest
-from alpaca.data.timeframe import TimeFrame
+from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 
 # path wrangling
 from __init__ import *
@@ -14,6 +14,25 @@ from bacta.utilities import load_dataframe, save_dataframe, getenv, get_logger, 
 
 # Create a logger for the bars module
 logger = get_logger("examples.bars")
+
+
+def timeframe_to_timedelta(timeframe: TimeFrame) -> timedelta:
+    """Convert a TimeFrame to a timedelta.
+    """
+    # value will be in form "15Min", "1Hour", "1Day", "1Week", "1Month", "15Min", "1Hour", "1Day", "1Week", "1Month"
+    # we need to convert this to a timedelta
+    if timeframe.unit == TimeFrameUnit.Minute:
+        return timedelta(minutes=timeframe.amount_value)
+    elif timeframe.unit == TimeFrameUnit.Hour:
+        return timedelta(hours=timeframe.amount_value)
+    elif timeframe.unit == TimeFrameUnit.Day:
+        return timedelta(days=timeframe.amount_value)
+    elif timeframe.unit == TimeFrameUnit.Week:
+        return timedelta(weeks=timeframe.amount_value)
+    elif timeframe.unit == TimeFrameUnit.Month:
+        raise ValueError("Monthly timeframe not supported")
+    else:
+        raise ValueError(f"Invalid timeframe: {timeframe}")
 
 
 def download_bars(symbols: list[str], start_date: datetime, end_date: datetime,
@@ -90,7 +109,8 @@ def download_stock_bars(symbols: list[str], start_date: datetime, end_date: date
         # convert all the dates to est. this is a multi-index dataframe, so we need to convert the index
         bars.index = bars.index.map(lambda x: (x[0], x[1].astimezone(eastern)))
         if resample:
-            bars = BarUtils.resample_multi_symbol_bars(bars)
+            bars = BarUtils.resample_multi_symbol_bars(
+                bars, timeframe_to_timedelta(timeframe))
         save_dataframe(bars, filename, data_dir)
         logger.debug(f"Saved bars to {filename}")
 
@@ -128,7 +148,8 @@ def download_crypto_bars(symbols: list[str], start_date: datetime, end_date: dat
             f"Refreshing... downloading bars for {symbols} from {start_date} to {end_date} with timeframe {timeframe.value}")
         bars = client.get_crypto_bars(request_params).df
         if resample:
-            bars = BarUtils.resample_multi_symbol_bars(bars)
+            bars = BarUtils.resample_multi_symbol_bars(
+                bars, timeframe_to_timedelta(timeframe))
         save_dataframe(bars, filename, data_dir)
         logger.debug(f"Saved bars to {filename}")
 

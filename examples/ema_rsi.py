@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 import logging
 
-from alpaca.data.timeframe import TimeFrame
+from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 import pandas as pd
 from talib import ATR, EMA, RSI
 
@@ -95,13 +95,11 @@ class EmaStrategy(EventBacktester):
         # if rsi is < 25 and short ema is < long ema, then long
         orders = []
         for symbol in self.active_symbols:
-            quantity = round(1000 / close_prices[symbol], 4)
+            quantity = round(150 / close_prices[symbol], 4)
             if (
                 self.rsis[symbol][index] > 75
                 and self.short_emas[symbol][index] > self.long_emas[symbol][index]
             ):
-                # if self.get_state(symbol, index) > 0:
-                #    quantity = self.get_position(symbol, index)
                 orders.append(
                     Order(symbol, Position.SHORT,
                           close_prices[symbol], quantity)
@@ -110,8 +108,6 @@ class EmaStrategy(EventBacktester):
                 self.rsis[symbol][index] < 25
                 and self.short_emas[symbol][index] < self.long_emas[symbol][index]
             ):
-                # if self.get_state(symbol, index) < 0:
-                #    quantity = self.get_position(symbol, index)
                 orders.append(
                     Order(symbol, Position.LONG,
                           close_prices[symbol], quantity)
@@ -127,7 +123,7 @@ if __name__ == "__main__":
         symbols,
         start_date=datetime(2024, 1, 1),
         end_date=datetime(2025, 7, 31),
-        timeframe=TimeFrame.Hour,
+        timeframe=TimeFrame(45, TimeFrameUnit.Minute)
     )
     # split the bars into train and test
     train_bars, test_bars = split_multi_index_bars_train_test(
@@ -136,10 +132,10 @@ if __name__ == "__main__":
     # create the backtester
     backtester = EmaStrategy(
         symbols,
-        cash=4000,
+        cash=2000,
         allow_short=True,
         min_cash_balance=100,
-        max_short_value=3000,
+        max_short_value=1000,
         min_trade_value=1,
         market_hours_only=True,
         transaction_cost=0.000,
