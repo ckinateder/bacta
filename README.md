@@ -145,6 +145,13 @@ def precompute_step(self, bars: pd.DataFrame):
 - `run_backtest(test_bars, close_positions=True)`: Execute backtest on test data
 - `reset()`: Reset the backtester to its initial state
 
+**Trade History Methods:**
+- `get_state(symbol=None, index=None)`: Get the current state of the backtester. If symbol is None, returns the current state of the backtester. If symbol is provided, returns the state of the symbol at the given index. If index is None, returns the current state of the symbol.
+- `get_position(symbol, index=None)`: Get the current position of the symbol. If index is None, returns the current position of the symbol.
+- `get_current_cash()`: Get the current cash balance.
+- `get_history()`: Get the history of the backtester.
+- `get_state_history()`: Get the state history of the backtester. This is a dataframe with the columns: `cash`, `portfolio_value`, *symbol
+
 **Analysis Methods:**
 - `analyze_performance()`: Calculate performance metrics
 - `get_win_rate(threshold=0.0)`: Calculate win rate and trade analysis

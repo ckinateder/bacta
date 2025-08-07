@@ -385,9 +385,13 @@ class EventBacktester(ABC):
 
         # iterate through the index of the bars
         with logging_redirect_tqdm(loggers=[get_logger()]):
-            for index in tqdm(timestamps[start_loc:], desc="Backtesting", leave=False, dynamic_ncols=True, total=len(timestamps[start_loc:]), position=0, disable=disable_tqdm):
-                # perform update step
+            for i, index in tqdm(enumerate(timestamps[start_loc:]), desc="Backtesting", leave=False, dynamic_ncols=True, total=len(timestamps[start_loc:]), position=0, disable=disable_tqdm):
+                # update portfolio value with current open prices
                 current_bar = full_bars.xs(index, level=1)
+                current_open_prices = current_bar.loc[:, "open"]
+                self._update_portfolio_value(current_open_prices, index)
+
+                # perform update step
                 self.update_step(full_bars, index)
                 if close_positions and (self.market_hours_only and index == last_market_bar) or (not self.market_hours_only and index == timestamps[-2]):
                     logger.info(f"Closing positions at {index}...")
@@ -406,6 +410,11 @@ class EventBacktester(ABC):
                 # Update portfolio value with current close prices
                 current_close_prices = current_bar.loc[:, "close"]
                 self._update_portfolio_value(current_close_prices, index)
+
+                # make sure that the state history is the same length as the test bars up to the current index. raise an error if not
+                if len(self.state_history) - 1 != len(test_bars.index.get_level_values(1).unique()[:i+1]):
+                    raise ValueError(
+                        "State history is not the same length as the test bars")
 
         # return the state history
         return self.get_state_history()
@@ -863,11 +872,32 @@ class EventBacktester(ABC):
 
     # getters
 
-    def get_state(self) -> pd.Series:
+    def get_state(self, symbol: str = None, index: pd.Timestamp = None) -> pd.Series:
         """
         Get the current state of the checkbook.
         """
-        return self.state_history.iloc[-1]
+        if symbol is None:
+            return self.state_history.iloc[-1]
+        else:
+            if index is None:
+                return self.state_history[symbol].iloc[-1]
+            else:
+                return self.state_history[symbol].loc[index]
+
+    def get_position(self, symbol: str, index: pd.Timestamp = None) -> pd.Series:
+        """Get the current position of the symbol.
+
+        Args:
+            symbol (str): The symbol of the asset.
+            index (pd.Timestamp, optional): The index of the state. Defaults to None.
+
+        Returns:
+            pd.Series: _description_
+        """
+        if index is None:
+            return self.state_history[symbol].iloc[-1]
+        else:
+            return self.state_history[symbol].loc[index]
 
     def get_current_cash(self) -> float:
         """

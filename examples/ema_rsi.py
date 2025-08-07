@@ -70,9 +70,13 @@ class EmaStrategy(EventBacktester):
         for symbol in self.active_symbols:
             quantity = round(300 / close_prices[symbol], 4)
             if self.rsis[symbol][index] > 75 and self.short_emas[symbol][index] > self.long_emas[symbol][index]:
+                # if self.get_state(symbol, index) > 0:
+                #    quantity = self.get_position(symbol, index)
                 orders.append(Order(symbol, Position.SHORT,
                               close_prices[symbol], quantity))
             elif self.rsis[symbol][index] < 25 and self.short_emas[symbol][index] < self.long_emas[symbol][index]:
+                # if self.get_state(symbol, index) < 0:
+                #    quantity = self.get_position(symbol, index)
                 orders.append(Order(symbol, Position.LONG,
                               close_prices[symbol], quantity))
 
@@ -86,16 +90,17 @@ if __name__ == "__main__":
     bars = download_crypto_bars(symbols, start_date=datetime(
         2024, 1, 1), end_date=datetime.now() - timedelta(minutes=15), timeframe=TimeFrame.Hour)
     """
-    symbols = ["DTE", "NRG"]
+    symbols = ["DTE", "DUK"]
+
     bars = download_bars(symbols, start_date=datetime(
-        2023, 7, 1), end_date=datetime.now() - timedelta(minutes=15), timeframe=TimeFrame.Hour)
+        2024, 1, 1), end_date=datetime(2025, 7, 31), timeframe=TimeFrame.Hour)
     # split the bars into train and test
     train_bars, test_bars = split_multi_index_bars_train_test(
-        bars, split_ratio=0.9)
+        bars, split_ratio=0.8)
 
     # create the backtester
     backtester = EmaStrategy(
-        symbols, cash=2000, allow_short=False, min_cash_balance=100, min_trade_value=1, market_hours_only=True, transaction_cost=0.000, transaction_cost_type="percentage")
+        symbols, cash=2000, allow_short=True, min_cash_balance=100, min_trade_value=1, market_hours_only=True, transaction_cost=0.000, transaction_cost_type="percentage")
 
     # preload the train bars
     backtester.load_train_bars(train_bars)
@@ -124,5 +129,5 @@ if __name__ == "__main__":
 
     # monte carlo analysis
     print(dash("monte carlo analysis"))
-    print(backtester.monte_carlo_analysis(
+    print(backtester.monte_carlo_trade_analysis(
         num_simulations=1000))

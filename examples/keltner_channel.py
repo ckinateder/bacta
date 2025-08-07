@@ -72,7 +72,7 @@ class KeltnerChannelBacktester(EventBacktester):
 
 
 if __name__ == "__main__":
-    symbols = ["DUK", "NRG"]
+    symbols = ["TSLA", "AAPL"]
     utility_symbols = [
         "NEE", "EXC", "D", "PCG", "XEL",
         "ED", "WEC", "DTE", "PPL", "AEE",
