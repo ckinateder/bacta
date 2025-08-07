@@ -95,9 +95,9 @@ class EmaStrategy(EventBacktester):
         # if rsi is < 25 and short ema is < long ema, then long
         orders = []
         for symbol in self.active_symbols:
-            quantity = round(150 / close_prices[symbol], 4)
+            quantity = round(400 / close_prices[symbol], 4)
             if (
-                self.rsis[symbol][index] > 75
+                self.rsis[symbol][index] > 70
                 and self.short_emas[symbol][index] > self.long_emas[symbol][index]
             ):
                 orders.append(
@@ -105,7 +105,7 @@ class EmaStrategy(EventBacktester):
                           close_prices[symbol], quantity)
                 )
             elif (
-                self.rsis[symbol][index] < 25
+                self.rsis[symbol][index] < 30
                 and self.short_emas[symbol][index] < self.long_emas[symbol][index]
             ):
                 orders.append(
@@ -123,7 +123,7 @@ if __name__ == "__main__":
         symbols,
         start_date=datetime(2024, 1, 1),
         end_date=datetime(2025, 7, 31),
-        timeframe=TimeFrame(45, TimeFrameUnit.Minute)
+        timeframe=TimeFrame(1, TimeFrameUnit.Hour)
     )
     # split the bars into train and test
     train_bars, test_bars = split_multi_index_bars_train_test(
@@ -135,7 +135,7 @@ if __name__ == "__main__":
         cash=2000,
         allow_short=True,
         min_cash_balance=100,
-        max_short_value=1000,
+        max_short_value=2000,
         min_trade_value=1,
         market_hours_only=True,
         transaction_cost=0.000,

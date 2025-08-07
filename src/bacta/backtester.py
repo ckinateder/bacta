@@ -283,26 +283,34 @@ class EventBacktester(ABC):
 
         # check if max short value limit is exceeded
         if order.position == Position.SHORT and self.max_short_value is not None and self.allow_short:
-            # Calculate current short value excluding this order
-            current_short_value = self.get_current_short_value(
-                {order.symbol: order.price})
+            # Calculate what the total short value would be after this order
+            # Start with current short value excluding this symbol
+            current_short_value = 0.0
+            for symbol in self.active_symbols:
+                if symbol != order.symbol:
+                    position = self.get_state()[symbol]
+                    if position < 0:  # Short position
+                        # Use order price as estimate for other symbols
+                        current_short_value += abs(position) * order.price
 
-            # Calculate what the short value would be after this order
-            new_short_value = current_short_value + order.get_value()
+            # Add the new short position for this symbol
+            current_position = self.get_state()[order.symbol]
+            new_position = current_position - order.quantity
+            if new_position < 0:
+                current_short_value += abs(new_position) * order.price
 
-            if new_short_value > self.max_short_value:
+            if current_short_value > self.max_short_value:
                 # Calculate how much we can short within the limit
-                remaining_short_capacity = max(
-                    0, self.max_short_value - current_short_value)
-                if remaining_short_capacity > 0:
-                    order.quantity = floor_decimal(
-                        remaining_short_capacity / order.price, QUANTITY_PRECISION)
-                    adjusted = True
-                else:
-                    # Cannot short at all - set quantity to 0
-                    order.quantity = 0
-                    adjusted = True
-                reason = "(max short value)"
+                # We need to reduce the order quantity
+                excess_value = current_short_value - self.max_short_value
+                excess_quantity = excess_value / order.price
+
+                # Reduce the order quantity by the excess
+                new_quantity = max(0, order.quantity - excess_quantity)
+                order.quantity = floor_decimal(
+                    new_quantity, QUANTITY_PRECISION)
+                adjusted = True
+                reason = "(max short value limit)"
 
         # check if transaction cost is allowed
         if self.transaction_cost_type == "percentage":
