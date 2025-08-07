@@ -6,8 +6,9 @@ import pandas as pd
 from talib import ATR, EMA, RSI
 
 from data import (
-    download_crypto_bars,
     download_bars,
+    download_crypto_bars,
+    download_stock_bars,
     separate_bars_by_symbol,
     split_multi_index_bars_train_test,
 )
@@ -37,12 +38,25 @@ class EmaStrategy(EventBacktester):
 
         split_bars = separate_bars_by_symbol(bars)
 
-        self.short_emas = {symbol: EMA(
-            split_bars[symbol].loc[:, "close"], timeperiod=self.short_ema_period) for symbol in self.active_symbols}
-        self.long_emas = {symbol: EMA(
-            split_bars[symbol].loc[:, "close"], timeperiod=self.long_ema_period) for symbol in self.active_symbols}
-        self.rsis = {symbol: RSI(
-            split_bars[symbol].loc[:, "close"], timeperiod=self.rsi_period) for symbol in self.active_symbols}
+        self.short_emas = {
+            symbol: EMA(
+                split_bars[symbol].loc[:,
+                                       "close"], timeperiod=self.short_ema_period
+            )
+            for symbol in self.active_symbols
+        }
+        self.long_emas = {
+            symbol: EMA(
+                split_bars[symbol].loc[:,
+                                       "close"], timeperiod=self.long_ema_period
+            )
+            for symbol in self.active_symbols
+        }
+        self.rsis = {
+            symbol: RSI(split_bars[symbol].loc[:, "close"],
+                        timeperiod=self.rsi_period)
+            for symbol in self.active_symbols
+        }
 
     def update_step(self, bars: pd.DataFrame, index: pd.Timestamp):
         """
@@ -50,12 +64,25 @@ class EmaStrategy(EventBacktester):
         """
         split_bars = separate_bars_by_symbol(bars)
 
-        self.short_emas = {symbol: EMA(
-            split_bars[symbol].loc[:, "close"], timeperiod=self.short_ema_period) for symbol in self.active_symbols}
-        self.long_emas = {symbol: EMA(
-            split_bars[symbol].loc[:, "close"], timeperiod=self.long_ema_period) for symbol in self.active_symbols}
-        self.rsis = {symbol: RSI(
-            split_bars[symbol].loc[:, "close"], timeperiod=self.rsi_period) for symbol in self.active_symbols}
+        self.short_emas = {
+            symbol: EMA(
+                split_bars[symbol].loc[:,
+                                       "close"], timeperiod=self.short_ema_period
+            )
+            for symbol in self.active_symbols
+        }
+        self.long_emas = {
+            symbol: EMA(
+                split_bars[symbol].loc[:,
+                                       "close"], timeperiod=self.long_ema_period
+            )
+            for symbol in self.active_symbols
+        }
+        self.rsis = {
+            symbol: RSI(split_bars[symbol].loc[:, "close"],
+                        timeperiod=self.rsi_period)
+            for symbol in self.active_symbols
+        }
 
     def generate_orders(self, bar: pd.DataFrame, index: pd.Timestamp) -> list[Order]:
         """
@@ -68,39 +95,56 @@ class EmaStrategy(EventBacktester):
         # if rsi is < 25 and short ema is < long ema, then long
         orders = []
         for symbol in self.active_symbols:
-            quantity = round(300 / close_prices[symbol], 4)
-            if self.rsis[symbol][index] > 75 and self.short_emas[symbol][index] > self.long_emas[symbol][index]:
+            quantity = round(1000 / close_prices[symbol], 4)
+            if (
+                self.rsis[symbol][index] > 75
+                and self.short_emas[symbol][index] > self.long_emas[symbol][index]
+            ):
                 # if self.get_state(symbol, index) > 0:
                 #    quantity = self.get_position(symbol, index)
-                orders.append(Order(symbol, Position.SHORT,
-                              close_prices[symbol], quantity))
-            elif self.rsis[symbol][index] < 25 and self.short_emas[symbol][index] < self.long_emas[symbol][index]:
+                orders.append(
+                    Order(symbol, Position.SHORT,
+                          close_prices[symbol], quantity)
+                )
+            elif (
+                self.rsis[symbol][index] < 25
+                and self.short_emas[symbol][index] < self.long_emas[symbol][index]
+            ):
                 # if self.get_state(symbol, index) < 0:
                 #    quantity = self.get_position(symbol, index)
-                orders.append(Order(symbol, Position.LONG,
-                              close_prices[symbol], quantity))
+                orders.append(
+                    Order(symbol, Position.LONG,
+                          close_prices[symbol], quantity)
+                )
 
         return orders
 
 
 if __name__ == "__main__":
-    """
-    symbols = ["BTC/USD"]
-    # download the bars
-    bars = download_crypto_bars(symbols, start_date=datetime(
-        2024, 1, 1), end_date=datetime.now() - timedelta(minutes=15), timeframe=TimeFrame.Hour)
-    """
     symbols = ["DTE", "DUK"]
 
-    bars = download_bars(symbols, start_date=datetime(
-        2024, 1, 1), end_date=datetime(2025, 7, 31), timeframe=TimeFrame.Hour)
+    bars = download_bars(
+        symbols,
+        start_date=datetime(2024, 1, 1),
+        end_date=datetime(2025, 7, 31),
+        timeframe=TimeFrame.Hour,
+    )
     # split the bars into train and test
     train_bars, test_bars = split_multi_index_bars_train_test(
-        bars, split_ratio=0.8)
+        bars, split_ratio=0.9)
 
     # create the backtester
     backtester = EmaStrategy(
-        symbols, cash=2000, allow_short=True, min_cash_balance=100, min_trade_value=1, market_hours_only=True, transaction_cost=0.000, transaction_cost_type="percentage")
+        symbols,
+        cash=4000,
+        allow_short=True,
+        min_cash_balance=100,
+        max_short_value=3000,
+        min_trade_value=1,
+        market_hours_only=True,
+        transaction_cost=0.000,
+        transaction_cost_type="percentage",
+    )
 
     # preload the train bars
     backtester.load_train_bars(train_bars)
@@ -121,13 +165,14 @@ if __name__ == "__main__":
     # Plot the results
     print("plotting...")
     backtester.plot_performance_analysis(
-        title="_".join(symbols)+" EMA RSI Strategy Performance")
-    backtester.plot_trade_history(
-        title="_".join(symbols)+" EMA RSI Strategy Trades")
+        title="_".join(symbols) + " EMA RSI Strategy Performance"
+    )
+    backtester.plot_trade_history(title="_".join(
+        symbols) + " EMA RSI Strategy Trades")
     backtester.plot_equity_curve(
-        title="_".join(symbols)+" EMA RSI Strategy Equity Curve")
+        title="_".join(symbols) + " EMA RSI Strategy Equity Curve"
+    )
 
     # monte carlo analysis
     print(dash("monte carlo analysis"))
-    print(backtester.monte_carlo_trade_analysis(
-        num_simulations=1000))
+    print(backtester.monte_carlo_trade_analysis(num_simulations=1000))

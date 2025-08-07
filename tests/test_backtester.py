@@ -1573,6 +1573,329 @@ class TestEventBacktesterStressTests(unittest.TestCase):
         self.assertEqual(order_history.iloc[0]["quantity"], 1000000)
 
 
+class TestEventBacktesterMaxShortValue(unittest.TestCase):
+    """
+    Test cases for the max_short_value parameter functionality.
+    """
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.symbols = ['AAPL', 'GOOGL']
+        self.cash = 10000
+
+    def create_test_data(self):
+        """Create test data with timezone-aware timestamps."""
+        dates = pd.date_range('2024-01-01', periods=10, freq='D', tz='UTC')
+        data = []
+        for date in dates:
+            for symbol in self.symbols:
+                data.append({
+                    'symbol': symbol,
+                    'timestamp': date,
+                    'open': 100.0,
+                    'high': 105.0,
+                    'low': 95.0,
+                    'close': 102.0,
+                    'volume': 1000000
+                })
+        df = pd.DataFrame(data)
+        df = df.set_index(['symbol', 'timestamp'])
+        return df
+
+    def test_max_short_value_no_limit(self):
+        """Test that no limit allows unlimited shorting."""
+        class ShortStrategy(EventBacktester):
+            def precompute_step(self, bars):
+                pass
+
+            def update_step(self, bars, index):
+                pass
+
+            def generate_orders(self, bars, index):
+                orders = []
+                for symbol in self.active_symbols:
+                    # Always try to short 100 shares
+                    orders.append(Order(symbol, Position.SHORT,
+                                  bars.loc[symbol, "close"], 100))
+                return orders
+
+        test_bars = self.create_test_data()
+        backtester = ShortStrategy(
+            active_symbols=self.symbols,
+            cash=self.cash,
+            allow_short=True,
+            market_hours_only=False,
+            max_short_value=None  # No limit
+        )
+
+        backtester.run_backtest(test_bars, close_positions=False)
+
+        # Check that positions were built up
+        state_history = backtester.get_state_history()
+        if len(state_history) > 1:
+            positions_before_close = state_history.iloc[-2]
+            short_value = abs(
+                positions_before_close['AAPL']) * 102.0 + abs(positions_before_close['GOOGL']) * 102.0
+            self.assertGreater(
+                short_value, 0, "Should have built up short positions")
+            self.assertGreater(
+                short_value, 10000, "Should have substantial short value without limit")
+
+    def test_max_short_value_with_limit(self):
+        """Test that max_short_value limit is enforced."""
+        class ShortStrategy(EventBacktester):
+            def precompute_step(self, bars):
+                pass
+
+            def update_step(self, bars, index):
+                pass
+
+            def generate_orders(self, bars, index):
+                orders = []
+                for symbol in self.active_symbols:
+                    # Always try to short 100 shares
+                    orders.append(Order(symbol, Position.SHORT,
+                                  bars.loc[symbol, "close"], 100))
+                return orders
+
+        test_bars = self.create_test_data()
+        max_short_value = 5000
+
+        backtester = ShortStrategy(
+            active_symbols=self.symbols,
+            cash=self.cash,
+            allow_short=True,
+            market_hours_only=False,
+            max_short_value=max_short_value
+        )
+
+        backtester.run_backtest(test_bars, close_positions=False)
+
+        # Check that short value is limited
+        state_history = backtester.get_state_history()
+        if len(state_history) > 1:
+            positions_before_close = state_history.iloc[-2]
+            short_value = abs(
+                positions_before_close['AAPL']) * 102.0 + abs(positions_before_close['GOOGL']) * 102.0
+            self.assertLessEqual(short_value, max_short_value,
+                                 f"Short value {short_value} exceeds limit {max_short_value}")
+
+    def test_max_short_value_very_low_limit(self):
+        """Test with very low max_short_value limit."""
+        class ShortStrategy(EventBacktester):
+            def precompute_step(self, bars):
+                pass
+
+            def update_step(self, bars, index):
+                pass
+
+            def generate_orders(self, bars, index):
+                orders = []
+                for symbol in self.active_symbols:
+                    # Always try to short 100 shares
+                    orders.append(Order(symbol, Position.SHORT,
+                                  bars.loc[symbol, "close"], 100))
+                return orders
+
+        test_bars = self.create_test_data()
+        max_short_value = 1000  # Very low limit
+
+        backtester = ShortStrategy(
+            active_symbols=self.symbols,
+            cash=self.cash,
+            allow_short=True,
+            market_hours_only=False,
+            max_short_value=max_short_value
+        )
+
+        backtester.run_backtest(test_bars, close_positions=False)
+
+        # Check that short value is limited
+        state_history = backtester.get_state_history()
+        if len(state_history) > 1:
+            positions_before_close = state_history.iloc[-2]
+            short_value = abs(
+                positions_before_close['AAPL']) * 102.0 + abs(positions_before_close['GOOGL']) * 102.0
+            self.assertLessEqual(short_value, max_short_value,
+                                 f"Short value {short_value} exceeds limit {max_short_value}")
+
+    def test_max_short_value_with_long_positions(self):
+        """Test that max_short_value doesn't affect long positions."""
+        class MixedStrategy(EventBacktester):
+            def precompute_step(self, bars):
+                pass
+
+            def update_step(self, bars, index):
+                pass
+
+            def generate_orders(self, bars, index):
+                orders = []
+                for symbol in self.active_symbols:
+                    # Mix of long and short positions
+                    if symbol == 'AAPL':
+                        orders.append(Order(symbol, Position.LONG,
+                                      bars.loc[symbol, "close"], 50))
+                    else:
+                        orders.append(Order(symbol, Position.SHORT,
+                                      bars.loc[symbol, "close"], 50))
+                return orders
+
+        test_bars = self.create_test_data()
+        max_short_value = 2000
+
+        backtester = MixedStrategy(
+            active_symbols=self.symbols,
+            cash=self.cash,
+            allow_short=True,
+            market_hours_only=False,
+            max_short_value=max_short_value
+        )
+
+        backtester.run_backtest(test_bars, close_positions=False)
+
+        # Check that long positions are unaffected
+        state_history = backtester.get_state_history()
+        if len(state_history) > 1:
+            positions_before_close = state_history.iloc[-2]
+            aapl_position = positions_before_close['AAPL']
+            googl_position = positions_before_close['GOOGL']
+
+            # AAPL should have long position
+            self.assertGreater(
+                aapl_position, 0, "AAPL should have long position")
+
+            # GOOGL should have short position within limit
+            self.assertLess(googl_position, 0,
+                            "GOOGL should have short position")
+            googl_short_value = abs(googl_position) * 102.0
+            self.assertLessEqual(
+                googl_short_value, max_short_value, "GOOGL short value should be within limit")
+
+    def test_max_short_value_get_current_short_value_method(self):
+        """Test the get_current_short_value method."""
+        backtester = TestEventBacktester(
+            active_symbols=self.symbols,
+            cash=self.cash,
+            allow_short=True
+        )
+
+        # Test with no positions
+        short_value = backtester.get_current_short_value()
+        self.assertEqual(short_value, 0.0,
+                         "Should return 0 with no short positions")
+
+        # Test with current prices
+        current_prices = {'AAPL': 100.0, 'GOOGL': 150.0}
+        short_value = backtester.get_current_short_value(current_prices)
+        self.assertEqual(
+            short_value, 0.0, "Should return 0 with no short positions even with prices")
+
+    def test_max_short_value_order_adjustment_logging(self):
+        """Test that order adjustments are properly logged."""
+        class ShortStrategy(EventBacktester):
+            def precompute_step(self, bars):
+                pass
+
+            def update_step(self, bars, index):
+                pass
+
+            def generate_orders(self, bars, index):
+                orders = []
+                for symbol in self.active_symbols:
+                    # Try to short a large amount
+                    orders.append(Order(symbol, Position.SHORT,
+                                  bars.loc[symbol, "close"], 1000))
+                return orders
+
+        test_bars = self.create_test_data()
+        max_short_value = 1000  # Very low limit
+
+        backtester = ShortStrategy(
+            active_symbols=self.symbols,
+            cash=self.cash,
+            allow_short=True,
+            market_hours_only=False,
+            max_short_value=max_short_value
+        )
+
+        # Run the backtest and check that orders are adjusted
+        backtester.run_backtest(test_bars, close_positions=False)
+
+        # Check that orders were placed but limited
+        order_history = backtester.get_history()
+        self.assertGreater(len(order_history), 0,
+                           "Should have placed some orders")
+
+        # Check that the total short value is within the limit
+        state_history = backtester.get_state_history()
+        if len(state_history) > 1:
+            positions_before_close = state_history.iloc[-2]
+            short_value = abs(
+                positions_before_close['AAPL']) * 102.0 + abs(positions_before_close['GOOGL']) * 102.0
+            self.assertLessEqual(short_value, max_short_value,
+                                 "Short value should be within limit")
+
+    def test_max_short_value_edge_cases(self):
+        """Test edge cases for max_short_value."""
+        class ShortStrategy(EventBacktester):
+            def precompute_step(self, bars):
+                pass
+
+            def update_step(self, bars, index):
+                pass
+
+            def generate_orders(self, bars, index):
+                orders = []
+                for symbol in self.active_symbols:
+                    orders.append(Order(symbol, Position.SHORT,
+                                  bars.loc[symbol, "close"], 10))
+                return orders
+
+        test_bars = self.create_test_data()
+
+        # Test with zero max_short_value
+        backtester1 = ShortStrategy(
+            active_symbols=self.symbols,
+            cash=self.cash,
+            allow_short=True,
+            market_hours_only=False,
+            max_short_value=0.0
+        )
+
+        backtester1.run_backtest(test_bars, close_positions=False)
+
+        # Should not be able to short anything
+        state_history1 = backtester1.get_state_history()
+        if len(state_history1) > 1:
+            positions1 = state_history1.iloc[-2]
+            short_value1 = abs(positions1['AAPL']) * \
+                102.0 + abs(positions1['GOOGL']) * 102.0
+            self.assertEqual(short_value1, 0.0,
+                             "Should not be able to short with zero limit")
+
+    def test_max_short_value_configuration_display(self):
+        """Test that max_short_value appears in configuration display."""
+        backtester = TestEventBacktester(
+            active_symbols=self.symbols,
+            cash=self.cash,
+            max_short_value=5000
+        )
+
+        # The configuration should be accessible through the instance
+        self.assertEqual(backtester.max_short_value, 5000,
+                         "max_short_value should be set correctly")
+
+        # Test with None value
+        backtester_none = TestEventBacktester(
+            active_symbols=self.symbols,
+            cash=self.cash,
+            max_short_value=None
+        )
+
+        self.assertIsNone(backtester_none.max_short_value,
+                          "max_short_value should be None when not set")
+
+
 class TestEventBacktesterSharpeRatio(unittest.TestCase):
     """Test Sharpe ratio calculation for EventBacktester class."""
 

@@ -64,6 +64,7 @@ backtester = EventBacktester(
     active_symbols=["AAPL", "MSFT"],     # Symbols to trade
     cash=10000,                          # Initial capital
     allow_short=True,                    # Allow short selling
+    max_short_value=1000,                # Maximum short value to maintain
     min_cash_balance=0,                  # Minimum cash balance to maintain
     min_trade_value=100.0,               # Minimum trade size
     market_hours_only=True,              # Only trade during market hours
@@ -77,6 +78,7 @@ backtester = EventBacktester(
 | `active_symbols`| symbols that can be traded with the backtester|
 | `cash` |  cash to start with |
 | `allow_short`| allow shorting assets |
+| `max_short_value`| maximum short value to maintain |
 | `min_cash_balance`| minimum cash balance to maintain |
 | `min_trade_value` | minimum trade value to submit |
 | `market_hours_only` | only place trades during market hours and on business days |

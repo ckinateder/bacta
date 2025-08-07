@@ -96,7 +96,7 @@ class EventBacktester(ABC):
 
     """
 
-    def __init__(self, active_symbols: list[str], cash: float = 2000, allow_short: bool = True, min_cash_balance: float = 10.0, min_trade_value: float = 1.0, market_hours_only: bool = True, transaction_cost: float = 0.0, transaction_cost_type: str = "percentage"):
+    def __init__(self, active_symbols: list[str], cash: float = 2000, allow_short: bool = True, min_cash_balance: float = 10.0, max_short_value: float = None, min_trade_value: float = 1.0, market_hours_only: bool = True, transaction_cost: float = 0.0, transaction_cost_type: str = "percentage"):
         """
         Initialize the backtester.
 
@@ -105,18 +105,20 @@ class EventBacktester(ABC):
             cash (float, optional): The initial cash balance. Defaults to 100.
             allow_short (bool, optional): Whether to allow short positions. If False, will not allow the backtester to shortsell. Defaults to True.
             min_cash_balance (float, optional): The minimum cash balance to maintain. If the cash balance is less than this, the backtester will not place any orders. Defaults to 10.0.
+            max_short_value (float, optional): The maximum dollar value of short positions allowed. If None, no limit is applied. Defaults to None.
             min_trade_value (float, optional): The minimum dollar value of a trade. If the order value is less than this, the order will be skipped. Defaults to 1.0.
             market_hours_only (bool, optional): Whether to only place orders during market hours. Defaults to True.
             transaction_cost (float, optional): The transaction cost as a percentage of the trade value. Defaults to 0.0.
             transaction_cost_type (str, optional): The type of transaction cost to use (dollar or percentage). Defaults to "percentage".
         """
         logger.debug(
-            f"Initializing backtester with active symbols: {active_symbols}, cash: {cash}, allow_short: {allow_short}, min_cash_balance: {min_cash_balance}, min_trade_value: {min_trade_value}, market_hours_only: {market_hours_only}")
+            f"Initializing backtester with active symbols: {active_symbols}, cash: {cash}, allow_short: {allow_short}, min_cash_balance: {min_cash_balance}, max_short_value: {max_short_value}, min_trade_value: {min_trade_value}, market_hours_only: {market_hours_only}")
         self.active_symbols = active_symbols
         self.initial_cash = cash
         self.initialize_bank(cash)
         self.allow_short = allow_short
         self.min_cash_balance = min_cash_balance
+        self.max_short_value = max_short_value
         self.min_trade_value = min_trade_value
         self.market_hours_only = market_hours_only
         self.transaction_cost = transaction_cost
@@ -279,6 +281,29 @@ class EventBacktester(ABC):
             adjusted = True
             reason = "(no shorting)"
 
+        # check if max short value limit is exceeded
+        if order.position == Position.SHORT and self.max_short_value is not None and self.allow_short:
+            # Calculate current short value excluding this order
+            current_short_value = self.get_current_short_value(
+                {order.symbol: order.price})
+
+            # Calculate what the short value would be after this order
+            new_short_value = current_short_value + order.get_value()
+
+            if new_short_value > self.max_short_value:
+                # Calculate how much we can short within the limit
+                remaining_short_capacity = max(
+                    0, self.max_short_value - current_short_value)
+                if remaining_short_capacity > 0:
+                    order.quantity = floor_decimal(
+                        remaining_short_capacity / order.price, QUANTITY_PRECISION)
+                    adjusted = True
+                else:
+                    # Cannot short at all - set quantity to 0
+                    order.quantity = 0
+                    adjusted = True
+                reason = "(max short value)"
+
         # check if transaction cost is allowed
         if self.transaction_cost_type == "percentage":
             transaction_cost = order.get_value() * self.transaction_cost
@@ -378,6 +403,7 @@ class EventBacktester(ABC):
 
         # find the last bar that is in the market hours
         # iterate backwards through the bars
+        last_market_bar = None
         for index in timestamps[start_loc:][::-1]:
             if is_market_open(index):
                 last_market_bar = index
@@ -393,7 +419,7 @@ class EventBacktester(ABC):
 
                 # perform update step
                 self.update_step(full_bars, index)
-                if close_positions and (self.market_hours_only and index == last_market_bar) or (not self.market_hours_only and index == timestamps[-2]):
+                if close_positions and (self.market_hours_only and last_market_bar is not None and index == last_market_bar) or (not self.market_hours_only and index == timestamps[-2]):
                     logger.info(f"Closing positions at {index}...")
                     self._close_positions(full_bars.xs(
                         index, level=1).loc[:, "close"], index)
@@ -905,6 +931,38 @@ class EventBacktester(ABC):
         """
         return self.state_history.iloc[-1]["cash"]
 
+    def get_current_short_value(self, current_prices: dict = None) -> float:
+        """
+        Get the current total dollar value of all short positions.
+
+        Args:
+            current_prices (dict, optional): Dictionary mapping symbol to current price. 
+                If None, uses the last known prices from state history.
+
+        Returns:
+            float: Total dollar value of short positions
+        """
+        current_state = self.get_state()
+        total_short_value = 0.0
+
+        for symbol in self.active_symbols:
+            position = current_state[symbol]
+            if position < 0:  # Short position
+                if current_prices and symbol in current_prices:
+                    price = current_prices[symbol]
+                else:
+                    # Use the last known price from order history if available
+                    symbol_orders = self.order_history[self.order_history['symbol'] == symbol]
+                    if not symbol_orders.empty:
+                        price = symbol_orders.iloc[-1]['price']
+                    else:
+                        # If no price available, skip this position
+                        continue
+
+                total_short_value += abs(position) * price
+
+        return total_short_value
+
     def get_history(self) -> pd.DataFrame:
         """
         Get the history of the checkbook.
@@ -1069,6 +1127,8 @@ class EventBacktester(ABC):
             ['Allow Short', str(self.allow_short)],
             ['Market Hours Only', str(self.market_hours_only)],
             ['Min Cash Balance', f"${self.min_cash_balance:.2f}"],
+            ['Max Short Value',
+                f"${self.max_short_value:.2f}" if self.max_short_value is not None else "No Limit"],
             ['Min Trade Value', f"${self.min_trade_value:.2f}"],
             ['Initial Cash', f"${self.state_history.iloc[0]['cash']:.2f}"],
         ]

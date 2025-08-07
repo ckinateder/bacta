@@ -21,6 +21,20 @@ def download_bars(symbols: list[str], start_date: datetime, end_date: datetime,
                   data_dir: str = getenv("DATA_DIR"), resample: bool = True) -> pd.DataFrame:
     """Download the bars for the given symbols. Will first check if the bars are already downloaded and if not, will download them.
     This requires an Alpaca API key.
+    """
+    if all(symbol.endswith("/USD") for symbol in symbols):
+        return download_crypto_bars(symbols, start_date, end_date,
+                                    timeframe, refresh_bars, data_dir, resample)
+    else:
+        return download_stock_bars(symbols, start_date, end_date,
+                                   timeframe, refresh_bars, data_dir, resample)
+
+
+def download_stock_bars(symbols: list[str], start_date: datetime, end_date: datetime,
+                        timeframe: TimeFrame, refresh_bars: bool = False,
+                        data_dir: str = getenv("DATA_DIR"), resample: bool = True) -> pd.DataFrame:
+    """Download the bars for the given symbols. Will first check if the bars are already downloaded and if not, will download them.
+    This requires an Alpaca API key.
 
     Args:
         symbols (list[str]): The symbols to download bars for.
@@ -143,8 +157,8 @@ def download_close_prices(symbols: list[str], start_date: datetime, end_date: da
     if refresh_bars or not (os.path.exists(os.path.join(data_dir, filename + ".csv")) or os.path.exists(os.path.join(data_dir, filename + ".pkl"))):
         logger.debug(
             f"Refreshing... downloading bars for {symbols} from {start_date} to {end_date} with timeframe {timeframe.value}")
-        bars = download_bars(symbols, start_date, end_date,
-                             timeframe, refresh_bars, data_dir)
+        bars = download_stock_bars(symbols, start_date, end_date,
+                                   timeframe, refresh_bars, data_dir)
         close_prices = bars["close"].unstack(level=0)
         save_dataframe(close_prices, filename, data_dir)
         logger.debug(f"Saved close prices to {filename}")
@@ -330,6 +344,6 @@ if __name__ == "__main__":
                                 datetime.now(), TimeFrame.Hour)
     print(bars)
 
-    bars = download_bars(["AAPL"], datetime(2025, 7, 1),
-                         datetime.now() - timedelta(minutes=15), TimeFrame.Hour)
+    bars = download_stock_bars(["AAPL"], datetime(2025, 7, 1),
+                               datetime.now() - timedelta(minutes=15), TimeFrame.Hour)
     print(bars)
