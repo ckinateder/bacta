@@ -420,16 +420,20 @@ class EventBacktester(ABC):
         # iterate through the index of the bars
         with logging_redirect_tqdm(loggers=[get_logger()]):
             for i, index in tqdm(enumerate(timestamps[start_loc:]), desc="Backtesting", leave=False, dynamic_ncols=True, total=len(timestamps[start_loc:]), position=0, disable=disable_tqdm):
+                # ensure no leakage
+                bars_up_to_index = full_bars.loc[full_bars.index.get_level_values(
+                    1) <= index].copy()
+
                 # update portfolio value with current open prices
-                current_bar = full_bars.xs(index, level=1)
+                current_bar = bars_up_to_index.xs(index, level=1)
                 current_open_prices = current_bar.loc[:, "open"]
                 self._update_portfolio_value(current_open_prices, index)
 
                 # perform update step
-                self.update_step(full_bars, index)
+                self.update_step(bars_up_to_index, index)
                 if close_positions and (self.market_hours_only and last_market_bar is not None and index == last_market_bar) or (not self.market_hours_only and index == timestamps[-2]):
                     logger.info(f"Closing positions at {index}...")
-                    self._close_positions(full_bars.xs(
+                    self._close_positions(bars_up_to_index.xs(
                         index, level=1).loc[:, "close"], index)
                     break
 
@@ -1011,7 +1015,7 @@ class EventBacktester(ABC):
         self.train_bars = train_bars
         self.precompute_step(train_bars)
 
-    def plot_equity_curve(self, figsize: tuple = (16, 10), title: str = "Equity Curve Analysis", save_plot: bool = True, show_plot: bool = False) -> plt.Figure:
+    def plot_equity_curve(self, figsize: tuple = (20, 12), title: str = "Equity Curve Analysis", save_plot: bool = True, show_plot: bool = False) -> plt.Figure:
         """
         Plot a clean equity curve analysis with strategy vs buy & hold comparison and performance metrics table.
 
@@ -1182,7 +1186,7 @@ class EventBacktester(ABC):
 
         return fig
 
-    def plot_performance_analysis(self, figsize: tuple = (20, 10), save_plot: bool = True, show_plot: bool = False, title: str = "Performance Analysis") -> plt.Figure:
+    def plot_performance_analysis(self, figsize: tuple = (20, 12), save_plot: bool = True, show_plot: bool = False, title: str = "Performance Analysis") -> plt.Figure:
         """
         Create a comprehensive performance analysis plot with multiple subplots.
 
