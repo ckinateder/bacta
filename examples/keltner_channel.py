@@ -7,14 +7,13 @@ import pandas as pd
 from talib import ATR, EMA
 
 from data import (
+    download_bars,
     download_stock_bars,
     separate_bars_by_symbol,
     split_multi_index_bars_train_test,
 )
 
-from __init__ import *
-from bacta import *
-from bacta.backtester import EventBacktester, Order, Position, WalkForwardBacktester
+from bacta.backtester import EventBacktester, Order, Position
 from bacta.utilities import dash, get_logger, set_log_level
 
 set_log_level(logging.DEBUG)
@@ -81,18 +80,19 @@ if __name__ == "__main__":
         "DUK", "SRE", "ATO", "NRG",
     ]
     random.shuffle(utility_symbols)
-    symbols = utility_symbols[:2]
+
+    symbols = ["DUK", "NRG"]
 
     # download the bars
-    bars = download_stock_bars(symbols, start_date=datetime(
-        2024, 1, 1), end_date=datetime.now() - timedelta(minutes=15), timeframe=TimeFrame.Hour)
+    bars = download_bars(symbols, start_date=datetime(
+        2024, 1, 1), end_date=datetime(2025, 7, 29), timeframe=TimeFrame.Hour)
     # split the bars into train and test
     train_bars, test_bars = split_multi_index_bars_train_test(
         bars, split_ratio=0.9)
 
     # create the backtester
     backtester = KeltnerChannelBacktester(
-        symbols, cash=2000, allow_short=True, min_cash_balance=0, max_short_value=1000, market_hours_only=True, transaction_cost=0.000, transaction_cost_type="percentage")
+        symbols, cash=2000, allow_short=True, min_cash_balance=0, max_short_value=None, market_hours_only=True, transaction_cost=0.000, transaction_cost_type="percentage")
 
     # run_backtest the backtest
     backtester.run_backtest(test_bars)

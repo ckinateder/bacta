@@ -86,7 +86,7 @@ def plot_split_dataframe(
     plt.tight_layout()
 
 
-def plt_show(prefix: str = "plt", folder: str = "plots", plt_cntr: bool = False):
+def plt_show(prefix: str = "plt", folder: str = "plots", plt_cntr: bool = False, show_plot: bool = True):
     """
     Show the plot and save it to the given folder.
 
@@ -96,7 +96,8 @@ def plt_show(prefix: str = "plt", folder: str = "plots", plt_cntr: bool = False)
         plt_cntr (bool, optional): Whether to add a counter to the plot file name. Defaults to False.
     """
     global PLT_CNTR
-    plt.show()
+    if show_plot:
+        plt.show()
     PLT_CNTR += 1
     prefix = prefix.replace(" ", "_").replace("&", "and")
     plt.savefig(

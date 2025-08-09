@@ -596,7 +596,7 @@ class EventBacktester(ABC):
 
         Args:
             risk_free_rate (float, optional): The risk-free rate of return (annualized). Defaults to 0.0.
-            periods_per_year (int, optional): Number of periods per year for annualization. 
+            periods_per_year (int, optional): Number of periods per year for annualization.
                 Defaults to 252 for daily data, use 12 for monthly, 4 for quarterly, etc.
 
         Returns:
@@ -668,11 +668,16 @@ class EventBacktester(ABC):
 
         ```
         self.order_history = pd.DataFrame([
-            {"symbol": "AAPL", "position": Position.LONG.value, "price": 24.0, "quantity": 1},
-            {"symbol": "AAPL", "position": Position.SHORT.value, "price": 22.0, "quantity": 1},
-            {"symbol": "AAPL", "position": Position.LONG.value, "price": 25.0, "quantity": 1},
-            {"symbol": "AAPL", "position": Position.SHORT.value, "price": 24.0, "quantity": 1},
-            {"symbol": "AAPL", "position": Position.SHORT.value, "price": 22.0, "quantity": 3},
+            {"symbol": "AAPL", "position": Position.LONG.value,
+                "price": 24.0, "quantity": 1},
+            {"symbol": "AAPL", "position": Position.SHORT.value,
+                "price": 22.0, "quantity": 1},
+            {"symbol": "AAPL", "position": Position.LONG.value,
+                "price": 25.0, "quantity": 1},
+            {"symbol": "AAPL", "position": Position.SHORT.value,
+                "price": 24.0, "quantity": 1},
+            {"symbol": "AAPL", "position": Position.SHORT.value,
+                "price": 22.0, "quantity": 3},
         ])
 
         self.get_win_rate() -> (0.6666666666666666,
@@ -683,7 +688,7 @@ class EventBacktester(ABC):
         ```
 
         Args:
-            percentage_threshold (float, optional): The threshold for the net profit percentage. Defaults to 0.0. 
+            percentage_threshold (float, optional): The threshold for the net profit percentage. Defaults to 0.0.
                 If the net profit percentage is greater than this threshold, the position is considered a win.
                 If the net profit percentage is less than this threshold, the position is considered a loss.
             return_net_profits (bool, optional): Whether to return the net profits. Defaults to False.
@@ -830,8 +835,8 @@ class EventBacktester(ABC):
 
     def monte_carlo_trade_analysis(self, num_simulations: int = 1000, noise_std: float = 0.01):
         """
-        Perform a Monte Carlo analysis of the backtest. 
-        The backtest must have been run first. 
+        Perform a Monte Carlo analysis of the backtest.
+        The backtest must have been run first.
         This method will bootstrap the list of completed trades and run the backtest on the synthetic data.
         The synthetic data will have noise added to the pnl_dollars and pnl_pct if noise_std is greater than 0.
 
@@ -944,7 +949,7 @@ class EventBacktester(ABC):
         Get the current total dollar value of all short positions.
 
         Args:
-            current_prices (dict, optional): Dictionary mapping symbol to current price. 
+            current_prices (dict, optional): Dictionary mapping symbol to current price.
                 If None, uses the last known prices from state history.
 
         Returns:
@@ -1168,9 +1173,9 @@ class EventBacktester(ABC):
         plt.tight_layout()
 
         if save_plot:
-            plt_show(prefix=title.replace(" ", "_").replace("/", ""))
-
-        if show_plot:
+            plt_show(prefix=title.replace(" ", "_").replace(
+                "/", ""), show_plot=show_plot)
+        elif show_plot:
             plt.show()
         else:
             plt.close()
@@ -1332,9 +1337,9 @@ class EventBacktester(ABC):
         plt.tight_layout()
 
         if save_plot:
-            plt_show(prefix=title.replace(" ", "_").replace("/", ""))
-
-        if show_plot:
+            plt_show(prefix=title.replace(" ", "_").replace(
+                "/", ""), show_plot=show_plot)
+        elif show_plot:
             plt.show()
         else:
             plt.close()
@@ -1495,9 +1500,9 @@ class EventBacktester(ABC):
         plt.tight_layout()
 
         if save_plot:
-            plt_show(prefix=title.replace(" ", "_").replace("/", ""))
-
-        if show_plot:
+            plt_show(prefix=title.replace(" ", "_").replace(
+                "/", ""), show_plot=show_plot)
+        elif show_plot:
             plt.show()
         else:
             plt.close()

@@ -1,7 +1,6 @@
 import os
 import pandas as pd
 from dotenv import load_dotenv
-import sys
 from .logger import get_logger, set_log_level
 import pytz
 import holidays
@@ -25,7 +24,10 @@ def floor_decimal(f, d):
 
 def dash(text: str | None = None) -> str:
     """Return a dash line with text centered in the middle."""
-    terminal_width = os.get_terminal_size().columns
+    try:
+        terminal_width = os.get_terminal_size().columns
+    except Exception as e:
+        terminal_width = 80
     if text is None:
         return "-" * terminal_width
     else:

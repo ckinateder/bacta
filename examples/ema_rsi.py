@@ -13,7 +13,6 @@ from data import (
     split_multi_index_bars_train_test,
 )
 
-from __init__ import *
 from bacta.backtester import EventBacktester, Order, Position
 from bacta.utilities import dash, get_logger, set_log_level
 

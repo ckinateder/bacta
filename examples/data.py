@@ -9,7 +9,6 @@ from alpaca.data.requests import StockBarsRequest, CryptoBarsRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 
 # path wrangling
-from __init__ import *
 from bacta.utilities import load_dataframe, save_dataframe, getenv, get_logger, eastern
 
 # Create a logger for the bars module
@@ -35,8 +34,8 @@ def timeframe_to_timedelta(timeframe: TimeFrame) -> timedelta:
         raise ValueError(f"Invalid timeframe: {timeframe}")
 
 
-def download_bars(symbols: list[str], start_date: datetime, end_date: datetime,
-                  timeframe: TimeFrame, refresh_bars: bool = False,
+def download_bars(symbols: list[str], start_date: datetime, end_date: datetime = datetime.now() - timedelta(minutes=15),
+                  timeframe: TimeFrame = TimeFrame.Hour, refresh_bars: bool = False,
                   data_dir: str = getenv("DATA_DIR"), resample: bool = True) -> pd.DataFrame:
     """Download the bars for the given symbols. Will first check if the bars are already downloaded and if not, will download them.
     This requires an Alpaca API key.
