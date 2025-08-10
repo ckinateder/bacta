@@ -15,7 +15,7 @@ from bacta.utilities.plotting import DEFAULT_FIGSIZE, plt_show
 logger = get_logger()
 
 # get version from pyproject.toml
-VERSION = "0.4.2"
+VERSION = "0.4.3"
 
 
 class Position(Enum):
@@ -129,7 +129,6 @@ class EventBacktester(ABC):
         # may or may not be needed
         self.train_bars = None
         self.test_bars = None
-        # self.full_bars = None
         self.__already_ran = False
 
     def reset(self) -> None:
@@ -241,23 +240,38 @@ class EventBacktester(ABC):
         else:
             self.order_history = pd.concat([self.order_history, new_history])
 
-    def _place_buy_order(self, symbol: str, price: float, quantity: float, index: pd.Timestamp):
+    def _place_buy_order(self, order: Order, index: pd.Timestamp):
         """
         Place a buy order for a given symbol.
         """
         # update state
-        self._update_state(symbol, price, quantity, Position.LONG, index)
+        self._update_state(order.symbol, order.price,
+                           order.quantity, Position.LONG, index)
         self._update_order_history(
-            symbol, price, quantity, Position.LONG, index)
+            order.symbol, order.price, order.quantity, Position.LONG, index)
+        self.state_history.loc[index,
+                               "cash"] -= self._calculate_transaction_cost(order)
 
-    def _place_sell_order(self, symbol: str, price: float, quantity: float, index: pd.Timestamp):
+    def _place_sell_order(self, order: Order, index: pd.Timestamp):
         """
         Place a sell order for a given symbol.
         """
-        # update state
-        self._update_state(symbol, price, quantity, Position.SHORT, index)
+
+        # update statez
+        self._update_state(order.symbol, order.price,
+                           order.quantity, Position.SHORT, index)
         self._update_order_history(
-            symbol, price, quantity, Position.SHORT, index)
+            order.symbol, order.price, order.quantity, Position.SHORT, index)
+        self.state_history.loc[index,
+                               "cash"] -= self._calculate_transaction_cost(order)
+
+    def _calculate_transaction_cost(self, order: Order) -> float:
+        """Calculate the transaction cost for a given order.
+        """
+        if self.transaction_cost_type == "percentage":
+            return order.get_value() * self.transaction_cost
+        elif self.transaction_cost_type == "dollar":
+            return self.transaction_cost
 
     def _place_order(self, order: Order, index: pd.Timestamp):
         """Place an order for a given symbol.
@@ -312,11 +326,8 @@ class EventBacktester(ABC):
                 adjusted = True
                 reason = "(max short value limit)"
 
-        # check if transaction cost is allowed
-        if self.transaction_cost_type == "percentage":
-            transaction_cost = order.get_value() * self.transaction_cost
-        elif self.transaction_cost_type == "dollar":
-            transaction_cost = self.transaction_cost
+        # transaction cost
+        transaction_cost = self._calculate_transaction_cost(order)
 
         # don't place an order if the value is less than the minimum trade value
         if order.get_value() < self.min_trade_value:
@@ -328,17 +339,14 @@ class EventBacktester(ABC):
                 f"Placing {f'adjusted ' if adjusted else ''}{order}{f' + ${transaction_cost:.3f} TC' if transaction_cost > 0 else ''} ({index})")
 
         if order.position == Position.LONG:
-            self._place_buy_order(
-                order.symbol, order.price, order.quantity, index)
-            self.state_history.loc[index, "cash"] -= transaction_cost
+            self._place_buy_order(order, index)
         elif order.position == Position.SHORT:
-            self._place_sell_order(
-                order.symbol, order.price, order.quantity, index)
-            self.state_history.loc[index, "cash"] -= transaction_cost
+            self._place_sell_order(order, index)
 
     def _close_positions(self, prices: pd.Series, index: pd.Timestamp):
         """
-        Close all positions at the given prices.
+        Close all positions at the given prices. This bypasses the order placement logic and just places the order.
+        The bank is forced to close the position at the given prices.
 
         Args:
             prices (pd.Series): The prices to close the positions at. Name is the date. Index is the symbols.
@@ -347,10 +355,10 @@ class EventBacktester(ABC):
             if self.get_state()[symbol] != 0:
                 position = self.get_state()[symbol]
                 if position > 0:
-                    self._place_order(
+                    self._place_sell_order(
                         Order(symbol, Position.SHORT, prices[symbol], abs(position)), index)
                 else:
-                    self._place_order(
+                    self._place_buy_order(
                         Order(symbol, Position.LONG, prices[symbol], abs(position)), index)
 
     def _validate_bars(self, bars: pd.DataFrame):
@@ -369,10 +377,11 @@ class EventBacktester(ABC):
 
         return True
 
-    def run_backtest(self, test_bars: pd.DataFrame, close_positions: bool = True, disable_tqdm: bool = False):
+    def run_backtest(self, test_bars: pd.DataFrame = None, close_positions: bool = True, disable_tqdm: bool = False):
         """
         Run a single period of the backtest over the given dataframe.
         Assume that prices have their indicators already calculated and are in the prices dataframe.
+        If test_bars is not provided, the backtest will use the train bars. This is good for optimizing the strategy.
 
         Args:
             test_bars: DataFrame with bars of the assets. Multi-index with (symbol, timestamp) index and OHLCV columns.
@@ -387,20 +396,28 @@ class EventBacktester(ABC):
         self.__already_ran = True
 
         # check if the bars are in the correct format
-        self._validate_bars(test_bars)
-
-        # store
-        self.test_bars = test_bars
+        if test_bars is not None:
+            self._validate_bars(test_bars)
+            self.test_bars = test_bars
 
         # if train bars is not None, we want to make the full price history
-        if self.train_bars is not None:
+        if self.train_bars is not None and test_bars is not None:
             logger.info(
                 "Train bars have been previously loaded. Concatenating with test bars...")
             full_bars = pd.concat([self.train_bars, test_bars])
             start_loc = len(self.train_bars.index.get_level_values(1).unique())
-        else:
+        elif test_bars is not None:
             full_bars = test_bars
             start_loc = 0
+        elif self.train_bars is not None and test_bars is None:
+            logger.info(
+                "No test bars have been provided. Using train bars for backtest...")
+            full_bars = self.train_bars
+            self.test_bars = self.train_bars
+            start_loc = 0
+        else:
+            raise ValueError(
+                "No bars have been loaded. Run self.load_train_bars() to load the bars or provide test_bars.")
 
         # get the timestamps
         timestamps = full_bars.index.get_level_values(1).unique()
@@ -416,6 +433,9 @@ class EventBacktester(ABC):
             if is_market_open(index):
                 last_market_bar = index
                 break
+        if last_market_bar is None:
+            logger.warning(
+                "No market hours found in the test bars.")
 
         # iterate through the index of the bars
         with logging_redirect_tqdm(loggers=[get_logger()]):
@@ -450,7 +470,7 @@ class EventBacktester(ABC):
                 self._update_portfolio_value(current_close_prices, index)
 
                 # make sure that the state history is the same length as the test bars up to the current index. raise an error if not
-                if len(self.state_history) - 1 != len(test_bars.index.get_level_values(1).unique()[:i+1]):
+                if len(self.state_history) - 1 != i + 1:
                     raise ValueError(
                         "State history is not the same length as the test bars")
 
@@ -837,82 +857,6 @@ class EventBacktester(ABC):
         else:
             return win_rate
 
-    def monte_carlo_trade_analysis(self, num_simulations: int = 1000, noise_std: float = 0.01):
-        """
-        Perform a Monte Carlo analysis of the backtest.
-        The backtest must have been run first.
-        This method will bootstrap the list of completed trades and run the backtest on the synthetic data.
-        The synthetic data will have noise added to the pnl_dollars and pnl_pct if noise_std is greater than 0.
-
-        Args:
-            num_simulations (int, optional): Number of simulations to run. Defaults to 1000.
-            noise_std (float, optional): Standard deviation of the noise to add to the trades. Defaults to 0.01.
-        Returns:
-            tuple[pd.DataFrame, pd.Series]: simulated results and summary statistics
-        """
-
-        if not self.__already_ran:
-            logger.warning(
-                "Backtester has not been run. Run self.run_backtest() to run the backtest.")
-            return
-        trades = self.get_win_rate(return_net_profits=True)[1]
-
-        if trades.empty:
-            logger.warning("No trades found for Monte Carlo analysis")
-            return pd.DataFrame()
-
-        simulated_results = pd.DataFrame(
-            columns=["win_rate", "pnl_dollars", "pnl_pct"], index=pd.Index(range(num_simulations), name="simulation"))
-
-        simulations = []
-
-        for i in range(num_simulations):
-            # shuffle the trades
-            shuffled_trades = trades.sample(
-                frac=1, replace=True).reset_index(drop=True)
-
-            equity = self.initial_cash
-            equity_pct = 1
-
-            equity_curve = [equity]
-            for j in range(len(shuffled_trades)):
-                equity += shuffled_trades.iloc[j]["pnl_dollars"] * \
-                    (1 + np.random.normal(0, noise_std))
-                equity_pct *= (1 + shuffled_trades.iloc[j]["pnl_pct"] *
-                               (1 + np.random.normal(0, noise_std)))
-
-                equity_curve.append(equity)
-
-            simulated_results.loc[i, "win_rate"] = len(
-                [profit for profit in shuffled_trades["win"] if profit]) / len(shuffled_trades)
-            simulated_results.loc[i, "pnl_dollars"] = equity
-            simulated_results.loc[i, "pnl_pct"] = 1+(equity_pct/100)
-            simulations.append(equity_curve)
-        # get results
-        drawdown = simulated_results["pnl_dollars"].cummax(
-        ) - simulated_results["pnl_dollars"]
-        summary_stats = pd.Series({
-            # "median_final_equity": np.median(simulated_results["pnl_dollars"]),
-            "median_final_equity_pct": np.median(simulated_results["pnl_pct"]),
-            "median_drawdown_pct": np.median(drawdown/simulated_results["pnl_dollars"]),
-            # "worst_case": np.min(simulated_results["pnl_dollars"]),
-            "worst_case_pct": np.min(simulated_results["pnl_pct"]),
-            # "best_case": np.max(simulated_results["pnl_dollars"]),
-            "best_case_pct": np.max(simulated_results["pnl_pct"]),
-            "median_win_rate": np.median(simulated_results["win_rate"]),
-        })
-
-        """
-        # Plot histogram of final equities
-        plt.hist(simulated_results["pnl_dollars"], bins=50, edgecolor='black')
-        plt.title("Monte Carlo Simulation: Final Equity Distribution")
-        plt.xlabel("Final Equity")
-        plt.ylabel("Frequency")
-        plt_show(prefix="monte_carlo_analysis_final_equity_distribution")
-        """
-
-        return simulated_results, summary_stats
-
     # getters
 
     def get_state(self, symbol: str = None, index: pd.Timestamp = None) -> pd.Series:
@@ -1004,14 +948,7 @@ class EventBacktester(ABC):
             train_bars (pd.DataFrame): The bars of the assets over the TRAINING period.
                 Multi-index with (symbol, timestamp) index and OHLCV columns.
         """
-        assert all(
-            symbol in train_bars.index.get_level_values(0) for symbol in self.active_symbols), "symbol not found in bars"
-        for symbol in self.active_symbols:
-            symbol_bars = train_bars.xs(symbol, level=0)
-            assert symbol_bars.index.is_monotonic_increasing, f"Bars for {symbol} must have a monotonic increasing timestamp"
-            assert symbol_bars.index.is_unique, f"Bars for {symbol} must have a unique timestamp"
-        assert isinstance(
-            train_bars.index.get_level_values(1)[0], pd.Timestamp), "Bars must have a timestamp index"
+        self._validate_bars(train_bars)
         self.train_bars = train_bars
         self.precompute_step(train_bars)
 
@@ -1179,6 +1116,153 @@ class EventBacktester(ABC):
         if save_plot:
             plt_show(prefix=title.replace(" ", "_").replace(
                 "/", ""), show_plot=show_plot)
+        elif show_plot:
+            plt.show()
+        else:
+            plt.close()
+
+        return fig
+
+    def plot_pairs_spread(self, figsize: tuple = (20, 12), save_plot: bool = True, show_plot: bool = False, title: str | None = None, mark_trades: bool = True, show_quantity: bool = True) -> plt.Figure | None:
+        """
+        Plot the close-price spread between the two active symbols on a single axis.
+
+        This function only works when exactly two symbols are active. It is intended for
+        pairs trading visualization. The spread is computed as Close(symbol_1) - Close(symbol_2)
+        using the intersection of timestamps between both symbols over the test period.
+
+        Args:
+            figsize (tuple): Figure size for the plot.
+            save_plot (bool): Whether to save the plot to file.
+            show_plot (bool): Whether to display the plot.
+            title (str | None): Optional title; defaults to "Pairs Spread: {s1} - {s2}".
+            mark_trades (bool): Whether to overlay trade markers for both symbols.
+            show_quantity (bool): Whether to annotate trade quantities next to markers.
+
+        Returns:
+            plt.Figure | None: The matplotlib Figure, or None if plotting is not possible.
+        """
+        if not self.__already_ran:
+            logger.warning(
+                "Backtester has not been run. Run self.run_backtest() to run the backtest.")
+            return None
+
+        if not hasattr(self, 'test_bars') or self.test_bars is None:
+            logger.warning("No test bars available for plotting pairs spread")
+            return None
+
+        if len(self.active_symbols) != 2:
+            logger.warning(
+                "Pairs spread plot requires exactly two active symbols")
+            return None
+
+        symbol_1, symbol_2 = self.active_symbols[0], self.active_symbols[1]
+
+        # Extract close price series for both symbols from test bars
+        full_bars = self.test_bars
+        if symbol_1 not in full_bars.index.get_level_values(0) or symbol_2 not in full_bars.index.get_level_values(0):
+            logger.warning(
+                "One or both symbols have no test bars for plotting pairs spread")
+            return None
+
+        s1_bars = full_bars.xs(symbol_1, level=0)
+        s2_bars = full_bars.xs(symbol_2, level=0)
+
+        if 'close' not in s1_bars.columns or 'close' not in s2_bars.columns:
+            logger.warning("Close prices not found for one or both symbols")
+            return None
+
+        # Align on common timestamps and compute spread
+        aligned = pd.concat(
+            [s1_bars['close'].rename(symbol_1), s2_bars['close'].rename(symbol_2)], axis=1
+        ).dropna()
+
+        if aligned.empty:
+            logger.warning(
+                "No overlapping timestamps between the two symbols to compute spread")
+            return None
+
+        spread = aligned[symbol_1] - aligned[symbol_2]
+
+        # Build figure
+        fig, ax = plt.subplots(1, 1, figsize=figsize)
+        _title = title if title is not None else f"Pairs Spread: {symbol_1} - {symbol_2}"
+        fig.suptitle(_title, fontsize=14, fontweight='bold')
+
+        # Plot spread
+        ax.plot(spread.index, spread.values,
+                label=f"{symbol_1} - {symbol_2}", linewidth=1.8, color='blue', alpha=0.85)
+
+        # Shade market closed periods if applicable
+        if self.market_hours_only:
+            market_closed_periods: list[tuple[pd.Timestamp, pd.Timestamp]] = []
+            current_period_start: pd.Timestamp | None = None
+            for timestamp in spread.index:
+                if not is_market_open(timestamp):
+                    if current_period_start is None:
+                        current_period_start = timestamp
+                else:
+                    if current_period_start is not None:
+                        market_closed_periods.append(
+                            (current_period_start, timestamp))
+                        current_period_start = None
+            if current_period_start is not None:
+                market_closed_periods.append(
+                    (current_period_start, spread.index[-1]))
+            for start_time, end_time in market_closed_periods:
+                ax.axvspan(start_time, end_time, alpha=0.12, color='gray',
+                           label='Market Closed' if start_time == market_closed_periods[0][0] else "")
+
+        # Optionally plot trade markers for both symbols on spread axis
+        if mark_trades:
+            order_history = self.get_history()
+            if not order_history.empty:
+                # Ensure we only consider timestamps present in the spread index
+                # This prevents scatter plotting on times not in the plotted range
+                oh = order_history.loc[order_history.index.isin(spread.index)]
+
+                for sym, color in [(symbol_1, 'green'), (symbol_2, 'orange')]:
+                    sym_trades = oh[oh['symbol'] == sym]
+                    if sym_trades.empty:
+                        continue
+
+                    long_trades = sym_trades[sym_trades['position']
+                                             == Position.LONG.value]
+                    short_trades = sym_trades[sym_trades['position']
+                                              == Position.SHORT.value]
+
+                    # Use spread value at trade timestamps for y coordinates
+                    if not long_trades.empty:
+                        y_vals = spread.loc[long_trades.index]
+                        ax.scatter(long_trades.index, y_vals, marker='^', s=90, color=color, alpha=0.9,
+                                   label=f"Buy {sym} ({len(long_trades)})", zorder=5)
+                        if show_quantity:
+                            for idx, row in long_trades.iterrows():
+                                qty = row['quantity']
+                                fmtstr = f"{qty:.2e}" if qty < 1 else f"{qty:.0f}"
+                                ax.annotate(fmtstr, (idx, spread.loc[idx]), xytext=(6, 10), textcoords='offset points',
+                                            fontsize=8, color=color, weight='bold')
+
+                    if not short_trades.empty:
+                        y_vals = spread.loc[short_trades.index]
+                        ax.scatter(short_trades.index, y_vals, marker='v', s=90, color='red' if sym == symbol_1 else 'purple', alpha=0.9,
+                                   label=f"Sell {sym} ({len(short_trades)})", zorder=5)
+                        if show_quantity:
+                            for idx, row in short_trades.iterrows():
+                                qty = row['quantity']
+                                fmtstr = f"{qty:.2e}" if qty < 1 else f"{qty:.0f}"
+                                ax.annotate(fmtstr, (idx, spread.loc[idx]), xytext=(6, -14), textcoords='offset points',
+                                            fontsize=8, color='red' if sym == symbol_1 else 'purple', weight='bold')
+
+        ax.set_ylabel('Spread ($)', fontsize=10)
+        ax.legend(loc='upper left')
+        ax.grid(True, linestyle='--', alpha=0.35)
+        plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+        plt.tight_layout()
+
+        if save_plot:
+            plt_show(prefix=(_title if _title else "Pairs_Spread").replace(
+                " ", "_").replace("/", ""), show_plot=show_plot)
         elif show_plot:
             plt.show()
         else:

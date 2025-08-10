@@ -78,7 +78,7 @@ backtester = EventBacktester(
 | `active_symbols`| symbols that can be traded with the backtester|
 | `cash` |  cash to start with |
 | `allow_short`| allow shorting assets |
-| `max_short_value`| maximum short value to maintain |
+| `max_short_value`| maximum short value to maintain. this is the maximum value of all short positions. |
 | `min_cash_balance`| minimum cash balance to maintain |
 | `min_trade_value` | minimum trade value to submit |
 | `market_hours_only` | only place trades during market hours and on business days |
@@ -144,7 +144,7 @@ def precompute_step(self, bars: pd.DataFrame):
 
 **Execution Methods:**
 - `load_train_bars(bars)`: Load training data and call `precompute_step`
-- `run_backtest(test_bars, close_positions=True)`: Execute backtest on test data
+- `run_backtest(test_bars=None, close_positions=True)`: Execute backtest on test data. If test_bars is not provided, the backtest will use the train bars. This is good for optimizing the strategy.
 - `reset()`: Reset the backtester to its initial state
 
 **Trade History Methods:**

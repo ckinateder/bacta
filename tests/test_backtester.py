@@ -195,7 +195,8 @@ class TestEventBacktesterUnit(unittest.TestCase):
         initial_cash = self.backtester.get_state()["cash"]
         initial_position = self.backtester.get_state()[symbol]
 
-        self.backtester._place_buy_order(symbol, price, quantity, timestamp)
+        order = Order(symbol, Position.LONG, price, quantity)
+        self.backtester._place_buy_order(order, timestamp)
 
         # Check state updates
         new_state = self.backtester.get_state()
@@ -221,15 +222,15 @@ class TestEventBacktesterUnit(unittest.TestCase):
         timestamp = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
 
         # First buy some shares
-        self.backtester._place_buy_order(
-            symbol, 100.0, 5, timestamp)
+        buy_order = Order(symbol, Position.LONG, 100.0, 5)
+        self.backtester._place_buy_order(buy_order, timestamp)
 
         initial_cash = self.backtester.get_state()["cash"]
         initial_position = self.backtester.get_state()[symbol]
 
         # Now sell
-        self.backtester._place_sell_order(
-            symbol, price, quantity, timestamp)
+        sell_order = Order(symbol, Position.SHORT, price, quantity)
+        self.backtester._place_sell_order(sell_order, timestamp)
 
         # Check state updates
         new_state = self.backtester.get_state()
@@ -266,8 +267,10 @@ class TestEventBacktesterUnit(unittest.TestCase):
         timestamp = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
 
         # Buy some positions
-        self.backtester._place_buy_order("AAPL", 150.0, 2, timestamp)
-        self.backtester._place_buy_order("GOOGL", 200.0, 1, timestamp)
+        aapl_order = Order("AAPL", Position.LONG, 150.0, 2)
+        googl_order = Order("GOOGL", Position.LONG, 200.0, 1)
+        self.backtester._place_buy_order(aapl_order, timestamp)
+        self.backtester._place_buy_order(googl_order, timestamp)
 
         # Verify positions exist
         self.assertEqual(self.backtester.get_state()["AAPL"], 2)
@@ -286,8 +289,10 @@ class TestEventBacktesterUnit(unittest.TestCase):
         timestamp = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
 
         # Buy some positions
-        self.backtester._place_buy_order("AAPL", 150.0, 2, timestamp)
-        self.backtester._place_buy_order("GOOGL", 200.0, 1, timestamp)
+        aapl_order = Order("AAPL", Position.LONG, 150.0, 2)
+        googl_order = Order("GOOGL", Position.LONG, 200.0, 1)
+        self.backtester._place_buy_order(aapl_order, timestamp)
+        self.backtester._place_buy_order(googl_order, timestamp)
 
         # Calculate expected portfolio value
         expected_cash = self.initial_cash - (150.0 * 2) - (200.0 * 1)
@@ -368,7 +373,8 @@ class TestEventBacktesterUnit(unittest.TestCase):
         """Test getting state history."""
         # Make some trades
         timestamp = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
-        self.backtester._place_buy_order("AAPL", 150.0, 1, timestamp)
+        order = Order("AAPL", Position.LONG, 150.0, 1)
+        self.backtester._place_buy_order(order, timestamp)
 
         # Get state history
         state_history = self.backtester.get_state_history()
@@ -384,8 +390,10 @@ class TestEventBacktesterUnit(unittest.TestCase):
         """Test getting order history."""
         # Make some trades
         timestamp = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
-        self.backtester._place_buy_order("AAPL", 150.0, 1, timestamp)
-        self.backtester._place_sell_order("GOOGL", 200.0, 1, timestamp)
+        buy_order = Order("AAPL", Position.LONG, 150.0, 1)
+        sell_order = Order("GOOGL", Position.SHORT, 200.0, 1)
+        self.backtester._place_buy_order(buy_order, timestamp)
+        self.backtester._place_sell_order(sell_order, timestamp)
 
         # Get history
         history = self.backtester.get_history()
@@ -1326,8 +1334,10 @@ class TestEventBacktesterAdvancedFeatures(unittest.TestCase):
         timestamp1 = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
         timestamp2 = pd.Timestamp(2024, 1, 1, 12, 0, tz="America/New_York")
 
-        self.backtester._place_buy_order("AAPL", 100.0, 1, timestamp1)
-        self.backtester._place_buy_order("AAPL", 110.0, 1, timestamp2)
+        order1 = Order("AAPL", Position.LONG, 100.0, 1)
+        order2 = Order("AAPL", Position.LONG, 110.0, 1)
+        self.backtester._place_buy_order(order1, timestamp1)
+        self.backtester._place_buy_order(order2, timestamp2)
 
         # Check that state history has no NaN values
         state_history = self.backtester.get_state_history()
