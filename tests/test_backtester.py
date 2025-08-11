@@ -1249,7 +1249,8 @@ class TestEventBacktesterAdvancedFeatures(unittest.TestCase):
         self.backtester.run_backtest(self.dummy_bars, disable_tqdm=True)
 
         # Get buy and hold returns
-        bh_returns = self.backtester.get_buy_and_hold_returns()
+        bh_returns = self.backtester.get_buy_and_hold_returns(
+            self.backtester.test_bars)
 
         # Check structure
         self.assertIsInstance(bh_returns, pd.DataFrame)

@@ -135,6 +135,7 @@ class EventBacktester(ABC):
         """Reset the backtester.
         """
         self.__already_ran = False
+        self.test_bars = None
         self.initialize_bank(self.initial_cash)
 
     def initialize_bank(self, cash: float) -> None:
@@ -377,11 +378,10 @@ class EventBacktester(ABC):
 
         return True
 
-    def run_backtest(self, test_bars: pd.DataFrame = None, close_positions: bool = True, disable_tqdm: bool = False):
+    def run_backtest(self, test_bars: pd.DataFrame, close_positions: bool = True, disable_tqdm: bool = False):
         """
         Run a single period of the backtest over the given dataframe.
         Assume that prices have their indicators already calculated and are in the prices dataframe.
-        If test_bars is not provided, the backtest will use the train bars. This is good for optimizing the strategy.
 
         Args:
             test_bars: DataFrame with bars of the assets. Multi-index with (symbol, timestamp) index and OHLCV columns.
@@ -396,28 +396,18 @@ class EventBacktester(ABC):
         self.__already_ran = True
 
         # check if the bars are in the correct format
-        if test_bars is not None:
-            self._validate_bars(test_bars)
-            self.test_bars = test_bars
+        self._validate_bars(test_bars)
+        self.test_bars = test_bars
 
         # if train bars is not None, we want to make the full price history
-        if self.train_bars is not None and test_bars is not None:
+        if self.train_bars is not None:
             logger.info(
                 "Train bars have been previously loaded. Concatenating with test bars...")
             full_bars = pd.concat([self.train_bars, test_bars])
             start_loc = len(self.train_bars.index.get_level_values(1).unique())
-        elif test_bars is not None:
+        else:
             full_bars = test_bars
             start_loc = 0
-        elif self.train_bars is not None and test_bars is None:
-            logger.info(
-                "No test bars have been provided. Using train bars for backtest...")
-            full_bars = self.train_bars
-            self.test_bars = self.train_bars
-            start_loc = 0
-        else:
-            raise ValueError(
-                "No bars have been loaded. Run self.load_train_bars() to load the bars or provide test_bars.")
 
         # get the timestamps
         timestamps = full_bars.index.get_level_values(1).unique()
@@ -439,7 +429,9 @@ class EventBacktester(ABC):
 
         # iterate through the index of the bars
         with logging_redirect_tqdm(loggers=[get_logger()]):
-            for i, index in tqdm(enumerate(timestamps[start_loc:]), desc="Backtesting", leave=False, dynamic_ncols=True, total=len(timestamps[start_loc:]), position=0, disable=disable_tqdm):
+            pbar = tqdm(enumerate(timestamps[start_loc:]), desc="Backtesting", leave=False, dynamic_ncols=True, total=len(
+                timestamps[start_loc:]), position=0, disable=disable_tqdm)
+            for i, index in pbar:
                 # ensure no leakage
                 bars_up_to_index = full_bars.loc[full_bars.index.get_level_values(
                     1) <= index].copy()
@@ -474,10 +466,15 @@ class EventBacktester(ABC):
                     raise ValueError(
                         "State history is not the same length as the test bars")
 
+                # add current portfolio value to pbar description
+                pbar.set_description(
+                    f"Backtesting (${self.get_state()['portfolio_value']:.2f})")
+
+            pbar.close()
         # return the state history
         return self.get_state_history()
 
-    def get_buy_and_hold_returns(self) -> pd.Series:
+    def get_buy_and_hold_returns(self, test_bars: pd.DataFrame) -> pd.Series:
         """Assuming an equal weight allocation to all symbols, calculate the buy and hold returns.
         This is done by calculating the returns of each symbol and then taking the mean of the returns.
 
@@ -486,8 +483,8 @@ class EventBacktester(ABC):
         """
         all_cum_returns = {}
         for symbol in self.active_symbols:
-            if symbol in self.test_bars.index.get_level_values(0):
-                symbol_bars = self.test_bars.xs(
+            if symbol in test_bars.index.get_level_values(0):
+                symbol_bars = test_bars.xs(
                     symbol, level=0)
                 symbol_returns = symbol_bars.loc[:,
                                                  "close"].pct_change().dropna()
@@ -536,7 +533,7 @@ class EventBacktester(ABC):
             state_history[self.active_symbols].sum(axis=1) != 0).sum() / len(state_history)
 
         # compare to buy and hold (prices)
-        all_cum_returns = self.get_buy_and_hold_returns()
+        all_cum_returns = self.get_buy_and_hold_returns(self.test_bars)
         combined_returns = all_cum_returns.mean(axis=1)
 
         # calculate Sharpe ratio
@@ -1001,7 +998,7 @@ class EventBacktester(ABC):
 
         # Add buy and hold comparison
         if hasattr(self, 'test_bars') and self.test_bars is not None:
-            all_cum_returns = self.get_buy_and_hold_returns()
+            all_cum_returns = self.get_buy_and_hold_returns(self.test_bars)
             if not all_cum_returns.empty:
                 combined_returns = all_cum_returns.mean(axis=1)
                 ax_plot.step(combined_returns.index, combined_returns,
@@ -1123,153 +1120,6 @@ class EventBacktester(ABC):
 
         return fig
 
-    def plot_pairs_spread(self, figsize: tuple = (20, 12), save_plot: bool = True, show_plot: bool = False, title: str | None = None, mark_trades: bool = True, show_quantity: bool = True) -> plt.Figure | None:
-        """
-        Plot the close-price spread between the two active symbols on a single axis.
-
-        This function only works when exactly two symbols are active. It is intended for
-        pairs trading visualization. The spread is computed as Close(symbol_1) - Close(symbol_2)
-        using the intersection of timestamps between both symbols over the test period.
-
-        Args:
-            figsize (tuple): Figure size for the plot.
-            save_plot (bool): Whether to save the plot to file.
-            show_plot (bool): Whether to display the plot.
-            title (str | None): Optional title; defaults to "Pairs Spread: {s1} - {s2}".
-            mark_trades (bool): Whether to overlay trade markers for both symbols.
-            show_quantity (bool): Whether to annotate trade quantities next to markers.
-
-        Returns:
-            plt.Figure | None: The matplotlib Figure, or None if plotting is not possible.
-        """
-        if not self.__already_ran:
-            logger.warning(
-                "Backtester has not been run. Run self.run_backtest() to run the backtest.")
-            return None
-
-        if not hasattr(self, 'test_bars') or self.test_bars is None:
-            logger.warning("No test bars available for plotting pairs spread")
-            return None
-
-        if len(self.active_symbols) != 2:
-            logger.warning(
-                "Pairs spread plot requires exactly two active symbols")
-            return None
-
-        symbol_1, symbol_2 = self.active_symbols[0], self.active_symbols[1]
-
-        # Extract close price series for both symbols from test bars
-        full_bars = self.test_bars
-        if symbol_1 not in full_bars.index.get_level_values(0) or symbol_2 not in full_bars.index.get_level_values(0):
-            logger.warning(
-                "One or both symbols have no test bars for plotting pairs spread")
-            return None
-
-        s1_bars = full_bars.xs(symbol_1, level=0)
-        s2_bars = full_bars.xs(symbol_2, level=0)
-
-        if 'close' not in s1_bars.columns or 'close' not in s2_bars.columns:
-            logger.warning("Close prices not found for one or both symbols")
-            return None
-
-        # Align on common timestamps and compute spread
-        aligned = pd.concat(
-            [s1_bars['close'].rename(symbol_1), s2_bars['close'].rename(symbol_2)], axis=1
-        ).dropna()
-
-        if aligned.empty:
-            logger.warning(
-                "No overlapping timestamps between the two symbols to compute spread")
-            return None
-
-        spread = aligned[symbol_1] - aligned[symbol_2]
-
-        # Build figure
-        fig, ax = plt.subplots(1, 1, figsize=figsize)
-        _title = title if title is not None else f"Pairs Spread: {symbol_1} - {symbol_2}"
-        fig.suptitle(_title, fontsize=14, fontweight='bold')
-
-        # Plot spread
-        ax.plot(spread.index, spread.values,
-                label=f"{symbol_1} - {symbol_2}", linewidth=1.8, color='blue', alpha=0.85)
-
-        # Shade market closed periods if applicable
-        if self.market_hours_only:
-            market_closed_periods: list[tuple[pd.Timestamp, pd.Timestamp]] = []
-            current_period_start: pd.Timestamp | None = None
-            for timestamp in spread.index:
-                if not is_market_open(timestamp):
-                    if current_period_start is None:
-                        current_period_start = timestamp
-                else:
-                    if current_period_start is not None:
-                        market_closed_periods.append(
-                            (current_period_start, timestamp))
-                        current_period_start = None
-            if current_period_start is not None:
-                market_closed_periods.append(
-                    (current_period_start, spread.index[-1]))
-            for start_time, end_time in market_closed_periods:
-                ax.axvspan(start_time, end_time, alpha=0.12, color='gray',
-                           label='Market Closed' if start_time == market_closed_periods[0][0] else "")
-
-        # Optionally plot trade markers for both symbols on spread axis
-        if mark_trades:
-            order_history = self.get_history()
-            if not order_history.empty:
-                # Ensure we only consider timestamps present in the spread index
-                # This prevents scatter plotting on times not in the plotted range
-                oh = order_history.loc[order_history.index.isin(spread.index)]
-
-                for sym, color in [(symbol_1, 'green'), (symbol_2, 'orange')]:
-                    sym_trades = oh[oh['symbol'] == sym]
-                    if sym_trades.empty:
-                        continue
-
-                    long_trades = sym_trades[sym_trades['position']
-                                             == Position.LONG.value]
-                    short_trades = sym_trades[sym_trades['position']
-                                              == Position.SHORT.value]
-
-                    # Use spread value at trade timestamps for y coordinates
-                    if not long_trades.empty:
-                        y_vals = spread.loc[long_trades.index]
-                        ax.scatter(long_trades.index, y_vals, marker='^', s=90, color=color, alpha=0.9,
-                                   label=f"Buy {sym} ({len(long_trades)})", zorder=5)
-                        if show_quantity:
-                            for idx, row in long_trades.iterrows():
-                                qty = row['quantity']
-                                fmtstr = f"{qty:.2e}" if qty < 1 else f"{qty:.0f}"
-                                ax.annotate(fmtstr, (idx, spread.loc[idx]), xytext=(6, 10), textcoords='offset points',
-                                            fontsize=8, color=color, weight='bold')
-
-                    if not short_trades.empty:
-                        y_vals = spread.loc[short_trades.index]
-                        ax.scatter(short_trades.index, y_vals, marker='v', s=90, color='red' if sym == symbol_1 else 'purple', alpha=0.9,
-                                   label=f"Sell {sym} ({len(short_trades)})", zorder=5)
-                        if show_quantity:
-                            for idx, row in short_trades.iterrows():
-                                qty = row['quantity']
-                                fmtstr = f"{qty:.2e}" if qty < 1 else f"{qty:.0f}"
-                                ax.annotate(fmtstr, (idx, spread.loc[idx]), xytext=(6, -14), textcoords='offset points',
-                                            fontsize=8, color='red' if sym == symbol_1 else 'purple', weight='bold')
-
-        ax.set_ylabel('Spread ($)', fontsize=10)
-        ax.legend(loc='upper left')
-        ax.grid(True, linestyle='--', alpha=0.35)
-        plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
-        plt.tight_layout()
-
-        if save_plot:
-            plt_show(prefix=(_title if _title else "Pairs_Spread").replace(
-                " ", "_").replace("/", ""), show_plot=show_plot)
-        elif show_plot:
-            plt.show()
-        else:
-            plt.close()
-
-        return fig
-
     def plot_performance_analysis(self, figsize: tuple = (20, 12), save_plot: bool = True, show_plot: bool = False, title: str = "Performance Analysis") -> plt.Figure:
         """
         Create a comprehensive performance analysis plot with multiple subplots.
@@ -1377,7 +1227,7 @@ class EventBacktester(ABC):
 
         # Subplot 5: Buy and Hold Returns
         if hasattr(self, 'test_bars') and self.test_bars is not None:
-            all_cum_returns = self.get_buy_and_hold_returns()
+            all_cum_returns = self.get_buy_and_hold_returns(self.test_bars)
             for symbol in all_cum_returns.columns:
                 ax5.step(all_cum_returns.index, all_cum_returns[symbol],
                          label=f'{symbol} B&H', linewidth=1.5, alpha=0.5, where='post')
@@ -1405,7 +1255,7 @@ class EventBacktester(ABC):
 
         # Add buy and hold comparison
         if hasattr(self, 'test_bars') and self.test_bars is not None:
-            all_cum_returns = self.get_buy_and_hold_returns()
+            all_cum_returns = self.get_buy_and_hold_returns(self.test_bars)
             if not all_cum_returns.empty:
                 combined_returns = all_cum_returns.mean(axis=1)
                 ax6.step(combined_returns.index, combined_returns,
@@ -1469,15 +1319,12 @@ class EventBacktester(ABC):
         if num_symbols == 1:
             axes = [axes]
 
-        # Only plot the test bars, not the train bars. no trades are made on the train bars.
-        full_bars = self.test_bars
-
         for i, symbol in enumerate(self.active_symbols):
             ax = axes[i]
 
             # Get price data for this symbol
-            if symbol in full_bars.index.get_level_values(0):
-                symbol_bars = full_bars.xs(symbol, level=0)
+            if symbol in self.test_bars.index.get_level_values(0):
+                symbol_bars = self.test_bars.xs(symbol, level=0)
 
                 # Plot price history
                 ax.plot(symbol_bars.index, symbol_bars['close'],
@@ -1652,3 +1499,154 @@ class WalkForwardBacktester(EventBacktester):
         self.single_tester = single_tester
         self.walk_forward_periods = walk_forward_periods
         self.split_ratio = split_ratio
+
+
+"""
+
+    def plot_pairs_spread(self, figsize: tuple = (20, 12), save_plot: bool = True, show_plot: bool = False, title: str | None = None, mark_trades: bool = True, show_quantity: bool = True) -> plt.Figure | None:
+Plot the close-price spread between the two active symbols on a single axis.
+
+This function only works when exactly two symbols are active. It is intended for
+ pairs trading visualization. The spread is computed as Close(symbol_1) - Close(symbol_2)
+  using the intersection of timestamps between both symbols over the test period.
+
+   Args:
+        figsize(tuple): Figure size for the plot.
+        save_plot(bool): Whether to save the plot to file.
+        show_plot(bool): Whether to display the plot.
+        title(str | None): Optional title
+        defaults to "Pairs Spread: {s1} - {s2}".
+        mark_trades(bool): Whether to overlay trade markers for both symbols.
+        show_quantity(bool): Whether to annotate trade quantities next to markers.
+
+    Returns:
+        plt.Figure | None: The matplotlib Figure, or None if plotting is not possible.
+        if not self.__already_ran:
+            logger.warning(
+                "Backtester has not been run. Run self.run_backtest() to run the backtest.")
+            return None
+
+        if not hasattr(self, 'test_bars') or self.test_bars is None:
+            logger.warning("No test bars available for plotting pairs spread")
+            return None
+
+        if len(self.active_symbols) != 2:
+            logger.warning(
+                "Pairs spread plot requires exactly two active symbols")
+            return None
+
+        symbol_1, symbol_2 = self.active_symbols[0], self.active_symbols[1]
+
+        # Extract close price series for both symbols from test bars
+        full_bars = self.test_bars
+        if symbol_1 not in full_bars.index.get_level_values(0) or symbol_2 not in full_bars.index.get_level_values(0):
+            logger.warning(
+                "One or both symbols have no test bars for plotting pairs spread")
+            return None
+
+        s1_bars = full_bars.xs(symbol_1, level=0)
+        s2_bars = full_bars.xs(symbol_2, level=0)
+
+        if 'close' not in s1_bars.columns or 'close' not in s2_bars.columns:
+            logger.warning("Close prices not found for one or both symbols")
+            return None
+
+        # Align on common timestamps and compute spread
+        aligned = pd.concat(
+            [s1_bars['close'].rename(symbol_1), s2_bars['close'].rename(symbol_2)], axis=1
+        ).dropna()
+
+        if aligned.empty:
+            logger.warning(
+                "No overlapping timestamps between the two symbols to compute spread")
+            return None
+
+        spread = aligned[symbol_1] - aligned[symbol_2]
+
+        # Build figure
+        fig, ax = plt.subplots(1, 1, figsize=figsize)
+        _title = title if title is not None else f"Pairs Spread: {symbol_1} - {symbol_2}"
+        fig.suptitle(_title, fontsize=14, fontweight='bold')
+
+        # Plot spread
+        ax.plot(spread.index, spread.values,
+                label=f"{symbol_1} - {symbol_2}", linewidth=1.8, color='blue', alpha=0.85)
+
+        # Shade market closed periods if applicable
+        if self.market_hours_only:
+            market_closed_periods: list[tuple[pd.Timestamp, pd.Timestamp]] = []
+            current_period_start: pd.Timestamp | None = None
+            for timestamp in spread.index:
+                if not is_market_open(timestamp):
+                    if current_period_start is None:
+                        current_period_start = timestamp
+                else:
+                    if current_period_start is not None:
+                        market_closed_periods.append(
+                            (current_period_start, timestamp))
+                        current_period_start = None
+            if current_period_start is not None:
+                market_closed_periods.append(
+                    (current_period_start, spread.index[-1]))
+            for start_time, end_time in market_closed_periods:
+                ax.axvspan(start_time, end_time, alpha=0.12, color='gray',
+                           label='Market Closed' if start_time == market_closed_periods[0][0] else "")
+
+        # Optionally plot trade markers for both symbols on spread axis
+        if mark_trades:
+            order_history = self.get_history()
+            if not order_history.empty:
+                # Ensure we only consider timestamps present in the spread index
+                # This prevents scatter plotting on times not in the plotted range
+                oh = order_history.loc[order_history.index.isin(spread.index)]
+
+                for sym, color in [(symbol_1, 'green'), (symbol_2, 'orange')]:
+                    sym_trades = oh[oh['symbol'] == sym]
+                    if sym_trades.empty:
+                        continue
+
+                    long_trades = sym_trades[sym_trades['position']
+                                             == Position.LONG.value]
+                    short_trades = sym_trades[sym_trades['position']
+                                              == Position.SHORT.value]
+
+                    # Use spread value at trade timestamps for y coordinates
+                    if not long_trades.empty:
+                        y_vals = spread.loc[long_trades.index]
+                        ax.scatter(long_trades.index, y_vals, marker='^', s=90, color=color, alpha=0.9,
+                                   label=f"Buy {sym} ({len(long_trades)})", zorder=5)
+                        if show_quantity:
+                            for idx, row in long_trades.iterrows():
+                                qty = row['quantity']
+                                fmtstr = f"{qty:.2e}" if qty < 1 else f"{qty:.0f}"
+                                ax.annotate(fmtstr, (idx, spread.loc[idx]), xytext=(6, 10), textcoords='offset points',
+                                            fontsize=8, color=color, weight='bold')
+
+                    if not short_trades.empty:
+                        y_vals = spread.loc[short_trades.index]
+                        ax.scatter(short_trades.index, y_vals, marker='v', s=90, color='red' if sym == symbol_1 else 'purple', alpha=0.9,
+                                   label=f"Sell {sym} ({len(short_trades)})", zorder=5)
+                        if show_quantity:
+                            for idx, row in short_trades.iterrows():
+                                qty = row['quantity']
+                                fmtstr = f"{qty:.2e}" if qty < 1 else f"{qty:.0f}"
+                                ax.annotate(fmtstr, (idx, spread.loc[idx]), xytext=(6, -14), textcoords='offset points',
+                                            fontsize=8, color='red' if sym == symbol_1 else 'purple', weight='bold')
+
+        ax.set_ylabel('Spread ($)', fontsize=10)
+        ax.legend(loc='upper left')
+        ax.grid(True, linestyle='--', alpha=0.35)
+        plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+        plt.tight_layout()
+
+        if save_plot:
+            plt_show(prefix=(_title if _title else "Pairs_Spread").replace(
+                " ", "_").replace("/", ""), show_plot=show_plot)
+        elif show_plot:
+            plt.show()
+        else:
+            plt.close()
+
+        return fig
+
+"""

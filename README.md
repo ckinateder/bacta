@@ -144,7 +144,7 @@ def precompute_step(self, bars: pd.DataFrame):
 
 **Execution Methods:**
 - `load_train_bars(bars)`: Load training data and call `precompute_step`
-- `run_backtest(test_bars=None, close_positions=True)`: Execute backtest on test data. If test_bars is not provided, the backtest will use the train bars. This is good for optimizing the strategy.
+- `run_backtest(test_bars, close_positions=True)`: Execute backtest on test data
 - `reset()`: Reset the backtester to its initial state
 
 **Trade History Methods:**
