@@ -406,10 +406,10 @@ class EventBacktester(ABC):
                 mask = full_bars.index.get_level_values(1) <= index
                 bars_up_to_index = full_bars.loc[mask].copy()
 
-                # update portfolio value with current open prices
+                # Update portfolio value with current close prices before any orders are placed
                 current_bar = bars_up_to_index.xs(index, level=1)
-                current_open_prices = current_bar.loc[:, "open"]
-                self._update_portfolio_value(current_open_prices, index)
+                current_close_prices = current_bar.loc[:, "close"]
+                self._update_portfolio_value(current_close_prices, index)
 
                 # perform update step
                 self.update_step(bars_up_to_index, index)
@@ -427,7 +427,7 @@ class EventBacktester(ABC):
                     for order in orders:
                         self._place_order(order, index)
 
-                # Update portfolio value with current close prices
+                # Update portfolio value with current close prices after all orders are placed
                 current_close_prices = current_bar.loc[:, "close"]
                 self._update_portfolio_value(current_close_prices, index)
 
