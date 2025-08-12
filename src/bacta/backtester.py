@@ -433,8 +433,8 @@ class EventBacktester(ABC):
                 timestamps[start_loc:]), position=0, disable=disable_tqdm)
             for i, index in pbar:
                 # ensure no leakage
-                bars_up_to_index = full_bars.loc[full_bars.index.get_level_values(
-                    1) <= index].copy()
+                mask = full_bars.index.get_level_values(1) <= index
+                bars_up_to_index = full_bars.loc[mask].copy()
 
                 # update portfolio value with current open prices
                 current_bar = bars_up_to_index.xs(index, level=1)
