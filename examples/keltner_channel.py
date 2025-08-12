@@ -92,7 +92,7 @@ if __name__ == "__main__":
 
     # create the backtester
     backtester = KeltnerChannelBacktester(
-        symbols, cash=2000, allow_short=True, min_cash_balance=0, max_short_value=None, market_hours_only=True, transaction_cost=0.000, transaction_cost_type="percentage")
+        symbols, cash=2000, allow_short=True, allow_overdraft=False, min_cash_balance=0, market_hours_only=True, transaction_cost=0.000, transaction_cost_type="percentage")
 
     # run_backtest the backtest
     backtester.run_backtest(test_bars)

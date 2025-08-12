@@ -96,7 +96,7 @@ class EventBacktester(ABC):
 
     """
 
-    def __init__(self, active_symbols: list[str], cash: float = 2000, allow_short: bool = True, min_cash_balance: float = 10.0, max_short_value: float = None, min_trade_value: float = 1.0, market_hours_only: bool = True, transaction_cost: float = 0.0, transaction_cost_type: str = "percentage"):
+    def __init__(self, active_symbols: list[str], cash: float = 2000, allow_short: bool = True, allow_overdraft: bool = False, min_cash_balance: float = 10.0, min_trade_value: float = 1.0, market_hours_only: bool = True, transaction_cost: float = 0.0, transaction_cost_type: str = "percentage"):
         """
         Initialize the backtester.
 
@@ -104,21 +104,21 @@ class EventBacktester(ABC):
             active_symbols (list[str]): The symbols to trade.
             cash (float, optional): The initial cash balance. Defaults to 100.
             allow_short (bool, optional): Whether to allow short positions. If False, will not allow the backtester to shortsell. Defaults to True.
+            allow_overdraft (bool, optional): Whether to allow overdraft. If False, will not allow the backtester to borrow money. Defaults to False.
             min_cash_balance (float, optional): The minimum cash balance to maintain. If the cash balance is less than this, the backtester will not place any orders. Defaults to 10.0.
-            max_short_value (float, optional): The maximum dollar value of short positions allowed. If None, no limit is applied. Defaults to None.
             min_trade_value (float, optional): The minimum dollar value of a trade. If the order value is less than this, the order will be skipped. Defaults to 1.0.
             market_hours_only (bool, optional): Whether to only place orders during market hours. Defaults to True.
             transaction_cost (float, optional): The transaction cost as a percentage of the trade value. Defaults to 0.0.
             transaction_cost_type (str, optional): The type of transaction cost to use (dollar or percentage). Defaults to "percentage".
         """
         logger.debug(
-            f"Initializing backtester with active symbols: {active_symbols}, cash: {cash}, allow_short: {allow_short}, min_cash_balance: {min_cash_balance}, max_short_value: {max_short_value}, min_trade_value: {min_trade_value}, market_hours_only: {market_hours_only}")
+            f"Initializing backtester with active symbols: {active_symbols}, cash: {cash}, allow_short: {allow_short}, allow_overdraft: {allow_overdraft}, min_cash_balance: {min_cash_balance}, min_trade_value: {min_trade_value}, market_hours_only: {market_hours_only}")
         self.active_symbols = active_symbols
         self.initial_cash = cash
         self.initialize_bank(cash)
         self.allow_short = allow_short
+        self.allow_overdraft = allow_overdraft
         self.min_cash_balance = min_cash_balance
-        self.max_short_value = max_short_value
         self.min_trade_value = min_trade_value
         self.market_hours_only = market_hours_only
         self.transaction_cost = transaction_cost
@@ -284,7 +284,7 @@ class EventBacktester(ABC):
         # check if overdraft is allowed
         adjusted = False
         reason = ""
-        if order.position == Position.LONG and self.get_current_cash() < (order.get_value() + self.min_cash_balance):
+        if not self.allow_overdraft and order.position == Position.LONG and self.get_current_cash() < (order.get_value() + self.min_cash_balance):
             order.quantity = floor_decimal(
                 self.get_current_cash() / order.price, QUANTITY_PRECISION)
             adjusted = True
@@ -292,40 +292,10 @@ class EventBacktester(ABC):
 
         # check if shorting is allowed
         if not self.allow_short and order.position == Position.SHORT and self.get_state()[order.symbol] < order.quantity:
+            # can only short what we have
             order.quantity = self.get_state()[order.symbol]
             adjusted = True
             reason = "(no shorting)"
-
-        # check if max short value limit is exceeded
-        if order.position == Position.SHORT and self.max_short_value is not None and self.allow_short:
-            # Calculate what the total short value would be after this order
-            # Start with current short value excluding this symbol
-            current_short_value = 0.0
-            for symbol in self.active_symbols:
-                if symbol != order.symbol:
-                    position = self.get_state()[symbol]
-                    if position < 0:  # Short position
-                        # Use order price as estimate for other symbols
-                        current_short_value += abs(position) * order.price
-
-            # Add the new short position for this symbol
-            current_position = self.get_state()[order.symbol]
-            new_position = current_position - order.quantity
-            if new_position < 0:
-                current_short_value += abs(new_position) * order.price
-
-            if current_short_value > self.max_short_value:
-                # Calculate how much we can short within the limit
-                # We need to reduce the order quantity
-                excess_value = current_short_value - self.max_short_value
-                excess_quantity = excess_value / order.price
-
-                # Reduce the order quantity by the excess
-                new_quantity = max(0, order.quantity - excess_quantity)
-                order.quantity = floor_decimal(
-                    new_quantity, QUANTITY_PRECISION)
-                adjusted = True
-                reason = "(max short value limit)"
 
         # transaction cost
         transaction_cost = self._calculate_transaction_cost(order)
@@ -889,13 +859,10 @@ class EventBacktester(ABC):
         """
         return self.state_history.iloc[-1]["cash"]
 
-    def get_current_short_value(self, current_prices: dict = None) -> float:
+    def get_current_short_value(self) -> float:
         """
-        Get the current total dollar value of all short positions.
-
-        Args:
-            current_prices (dict, optional): Dictionary mapping symbol to current price.
-                If None, uses the last known prices from state history.
+        Get the current total dollar value of all short positions using the
+        last known prices from the state history.
 
         Returns:
             float: Total dollar value of short positions
@@ -906,17 +873,7 @@ class EventBacktester(ABC):
         for symbol in self.active_symbols:
             position = current_state[symbol]
             if position < 0:  # Short position
-                if current_prices and symbol in current_prices:
-                    price = current_prices[symbol]
-                else:
-                    # Use the last known price from order history if available
-                    symbol_orders = self.order_history[self.order_history['symbol'] == symbol]
-                    if not symbol_orders.empty:
-                        price = symbol_orders.iloc[-1]['price']
-                    else:
-                        # If no price available, skip this position
-                        continue
-
+                price = current_state[symbol]
                 total_short_value += abs(position) * price
 
         return total_short_value
@@ -1078,8 +1035,7 @@ class EventBacktester(ABC):
             ['Allow Short', str(self.allow_short)],
             ['Market Hours Only', str(self.market_hours_only)],
             ['Min Cash Balance', f"${self.min_cash_balance:.2f}"],
-            ['Max Short Value',
-                f"${self.max_short_value:.2f}" if self.max_short_value is not None else "No Limit"],
+            ['Allow Overdraft', str(self.allow_overdraft)],
             ['Min Trade Value', f"${self.min_trade_value:.2f}"],
             ['Initial Cash', f"${self.state_history.iloc[0]['cash']:.2f}"],
         ]
