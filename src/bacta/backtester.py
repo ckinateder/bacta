@@ -42,6 +42,8 @@ class Order:
         self.position = position
         self.price = price
         self.quantity = quantity
+        self.filled = False
+        self.fill_price = None
 
     def get_value(self) -> float:
         """Get the value of the order.
