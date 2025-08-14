@@ -2,14 +2,6 @@
 # # EMA RSI Strategy
 
 # %%
-from bacta.utilities.logger import get_logger, set_log_level
-from bacta.utilities import dash
-from bacta.backtester import EventBacktester, Order, Position
-from data import (
-    download_bars,
-    separate_bars_by_symbol,
-    split_multi_index_bars_train_test,
-)
 from datetime import datetime, timedelta
 import logging
 
@@ -17,6 +9,15 @@ from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 import pandas as pd
 from talib import ATR, EMA, RSI
 
+from data import (
+    download_bars,
+    separate_bars_by_symbol,
+    split_multi_index_bars_train_test,
+)
+
+from bacta.backtester import EventBacktester, Order, Position
+from bacta.utilities import dash
+from bacta.utilities.logger import get_logger, set_log_level
 
 set_log_level(logging.DEBUG)
 
@@ -98,11 +99,11 @@ class EmaStrategy(EventBacktester):
         # if rsi is < 25 and short ema is < long ema, then long
         orders = []
         for symbol in self.active_symbols:
-            quantity = round(100 / close_prices[symbol], 4)
+            quantity = round(200 / close_prices[symbol], 4)
             if (
                 self.rsis[symbol][index] > 70
                 and self.short_emas[symbol][index] > self.long_emas[symbol][index]
-            ):
+            ) and self.get_position(symbol) > -10:
                 orders.append(
                     Order(symbol, Position.SHORT,
                           close_prices[symbol], quantity)
@@ -110,7 +111,7 @@ class EmaStrategy(EventBacktester):
             elif (
                 self.rsis[symbol][index] < 30
                 and self.short_emas[symbol][index] < self.long_emas[symbol][index]
-            ):
+            ) and self.get_position(symbol) < 10:
                 orders.append(
                     Order(symbol, Position.LONG,
                           close_prices[symbol], quantity)
@@ -120,7 +121,7 @@ class EmaStrategy(EventBacktester):
 
 
 # %%
-symbols = ["DTE", "DUK"]
+symbols = ["CMS", "DUK", "AAPL"]
 
 bars = download_bars(
     symbols,
@@ -130,18 +131,18 @@ bars = download_bars(
 )
 # split the bars into train and test
 train_bars, test_bars = split_multi_index_bars_train_test(
-    bars, split_ratio=0.8)
+    bars, split_ratio=0.82)
 
 # create the backtester
 backtester = EmaStrategy(
     symbols,
-    cash=1000,
+    cash=2000,
     allow_short=True,
-    min_cash_balance=100,
     allow_overdraft=False,
+    min_cash_balance=100,
     min_trade_value=1,
     market_hours_only=True,
-    transaction_cost=0.000,
+    transaction_cost=0.0025,
     transaction_cost_type="percentage",
 )
 

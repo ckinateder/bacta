@@ -286,7 +286,7 @@ class EventBacktester(ABC):
         reason = ""
         if not self.allow_overdraft and order.position == Position.LONG and self.get_current_cash() < (order.get_value() + self.min_cash_balance):
             order.quantity = floor_decimal(
-                self.get_current_cash() / order.price, QUANTITY_PRECISION)
+                (self.get_current_cash() - self.min_cash_balance) / order.price, QUANTITY_PRECISION)
             adjusted = True
             reason = "(not enough cash)"
 
