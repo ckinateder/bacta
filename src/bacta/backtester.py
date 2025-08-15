@@ -283,12 +283,15 @@ class EventBacktester(ABC):
             order (Order): The order to place.
             index (pd.Timestamp): The index of the state.
         """
+        # transaction cost
+        transaction_cost = self._calculate_transaction_cost(order)
+
         # check if overdraft is allowed
         adjusted = False
         reason = ""
-        if not self.allow_overdraft and order.position == Position.LONG and self.get_current_cash() < (order.get_value() + self.min_cash_balance):
+        if not self.allow_overdraft and order.position == Position.LONG and self.get_current_cash() < (order.get_value() + transaction_cost + self.min_cash_balance):
             order.quantity = floor_decimal(
-                (self.get_current_cash() - self.min_cash_balance) / order.price, QUANTITY_PRECISION)
+                (self.get_current_cash() - self.min_cash_balance - transaction_cost) / order.price, QUANTITY_PRECISION)
             adjusted = True
             reason = "(not enough cash)"
 
@@ -299,7 +302,7 @@ class EventBacktester(ABC):
             adjusted = True
             reason = "(no shorting)"
 
-        # transaction cost
+        # transaction cost recalculated with adjusted quantity
         transaction_cost = self._calculate_transaction_cost(order)
 
         # don't place an order if the value is less than the minimum trade value
@@ -500,8 +503,15 @@ class EventBacktester(ABC):
             int).diff().ne(0).cumsum().min()
 
         # avg trades per day
-        avg_orders_per_day = self.order_history.shape[0] / (
-            state_history.index[-1] - state_history.index[1]).days
+        if len(state_history) > 1:
+            time_diff = state_history.index[-1] - state_history.index[1]
+            if time_diff.days > 0:
+                avg_orders_per_day = self.order_history.shape[0] / \
+                    time_diff.days
+            else:
+                avg_orders_per_day = 0.0
+        else:
+            avg_orders_per_day = 0.0
 
         # calculate percentage of time in market. meaning, the percentage of time that the portfolio was not empty
         # count the number of non-zero symbols
@@ -520,9 +530,9 @@ class EventBacktester(ABC):
 
         return pd.Series({
             "version": VERSION,
-            "trading_period_start": state_history.index[1],
+            "trading_period_start": state_history.index[1] if len(state_history) > 1 else state_history.index[0],
             "trading_period_end": state_history.index[-1],
-            "trading_period_length": state_history.index[-1] - state_history.index[1],
+            "trading_period_length": state_history.index[-1] - state_history.index[1] if len(state_history) > 1 else pd.Timedelta(0),
             "return_on_investment": return_on_investment,
             "max_drawdown_pct": max_drawdown_pct,
             "start_portfolio_value": start_portfolio_value,
@@ -846,7 +856,7 @@ class EventBacktester(ABC):
             else:
                 return self.state_history[symbol].loc[index]
 
-    def get_position(self, symbol: str, index: pd.Timestamp = None) -> pd.Series:
+    def get_position(self, symbol: str, index: pd.Timestamp = None) -> float:
         """Get the current position of the symbol.
 
         Args:
