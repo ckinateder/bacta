@@ -499,6 +499,10 @@ class EventBacktester(ABC):
         max_consecutive_losses = net_profits["win"].astype(
             int).diff().ne(0).cumsum().min()
 
+        # avg trades per day
+        avg_orders_per_day = self.order_history.shape[0] / (
+            state_history.index[-1] - state_history.index[1]).days
+
         # calculate percentage of time in market. meaning, the percentage of time that the portfolio was not empty
         # count the number of non-zero symbols
         time_in_market = (
@@ -531,6 +535,7 @@ class EventBacktester(ABC):
             "sharpe_ratio": sharpe_ratio,
             "win_rate": win_rate,
             "number_of_orders": self.order_history.shape[0],
+            "avg_orders_per_day": avg_orders_per_day,
             "number_of_winning_trades": len(net_profits[net_profits["win"]]),
             "number_of_losing_trades": len(net_profits[~net_profits["win"]]),
             "avg_trade_return": avg_trade_return,
@@ -564,6 +569,7 @@ class EventBacktester(ABC):
             f"- Win Rate: {performance['win_rate']*100:.2f}%",
             "",
             f"- Number of Orders: {performance['number_of_orders']}",
+            f"- Avg Orders per Day: {performance['avg_orders_per_day']:.2f}",
             f"- Number of Winning Trades: {performance['number_of_winning_trades']}",
             f"- Number of Losing Trades: {performance['number_of_losing_trades']}",
             f"- Avg Trade Return: {performance['avg_trade_return']*100:.2f}%",
