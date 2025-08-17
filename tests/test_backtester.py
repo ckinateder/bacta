@@ -934,6 +934,75 @@ class TestEventBacktesterIntegration(unittest.TestCase):
         win_rate_10 = self.backtester.get_win_rate(percentage_threshold=0.10)
         self.assertEqual(win_rate_10, 0/5)  # No trades have >10% profit
 
+    def test_get_win_rate_duplicate_timestamps(self):
+        """Test win rate calculation with orders at the same timestamp."""
+        # Create trades with orders at the same timestamp but different prices
+        self.backtester.initialize_bank(cash=10000.0)
+
+        # Create a timestamp that will be used for multiple orders
+        base_timestamp = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
+
+        orders = [
+            # First set of orders at the same timestamp
+            Order("AAPL", Position.LONG, 100.0, 1),      # Entry at 100
+            # Entry at 101 (same timestamp)
+            Order("AAPL", Position.LONG, 101.0, 1),
+            # Exit at 105 (same timestamp)
+            Order("AAPL", Position.SHORT, 105.0, 1),
+            # Exit at 106 (same timestamp)
+            Order("AAPL", Position.SHORT, 106.0, 1),
+
+            # Second set of orders at a different timestamp
+            Order("AAPL", Position.LONG, 110.0, 1),      # Entry at 110
+            Order("AAPL", Position.SHORT, 115.0, 1),     # Exit at 115
+        ]
+
+        # Place orders with some at the same timestamp
+        self.backtester._place_order(
+            orders[0], base_timestamp)           # LONG at 100
+        # LONG at 101 (same time)
+        self.backtester._place_order(orders[1], base_timestamp)
+        # SHORT at 105 (same time)
+        self.backtester._place_order(orders[2], base_timestamp)
+        # SHORT at 106 (same time)
+        self.backtester._place_order(orders[3], base_timestamp)
+        self.backtester._place_order(
+            orders[4], base_timestamp + timedelta(hours=1))  # LONG at 110
+        self.backtester._place_order(
+            orders[5], base_timestamp + timedelta(hours=2))  # SHORT at 115
+
+        # Set the backtester as having been run so get_win_rate works
+        self.backtester._EventBacktester__already_ran = True
+
+        # Test win rate calculation - should handle duplicate timestamps gracefully
+        win_rate, exits = self.backtester.get_win_rate(
+            percentage_threshold=0.0, return_net_profits=True)
+
+        # Should have 3 completed trades (the system matches orders at same timestamp in order):
+        # 1. SHORT 105 -> LONG 100 (profit: 5.0, 4.76%)
+        # 2. SHORT 106 -> LONG 101 (profit: 5.0, 4.72%)
+        # 3. LONG 110 -> SHORT 115 (profit: 5.0, 4.55%)
+        self.assertEqual(len(exits), 3)
+        self.assertEqual(win_rate, 3/3)  # All trades should be profitable
+
+        # Verify the trades are recorded correctly
+        expected_trades = [
+            {"entry_price": 105.0, "exit_price": 100.0,
+                "pnl_pct": 0.047619},  # (105-100)/105
+            {"entry_price": 106.0, "exit_price": 101.0,
+                "pnl_pct": 0.047169},  # (106-101)/106
+            {"entry_price": 110.0, "exit_price": 115.0,
+                "pnl_pct": 0.045455},  # (115-110)/110
+        ]
+
+        for i, expected in enumerate(expected_trades):
+            self.assertAlmostEqual(
+                exits.iloc[i]["entry_price"], expected["entry_price"], places=2)
+            self.assertAlmostEqual(
+                exits.iloc[i]["exit_price"], expected["exit_price"], places=2)
+            self.assertAlmostEqual(
+                exits.iloc[i]["pnl_pct"], expected["pnl_pct"], places=4)
+
 
 class TestEventBacktesterEdgeCases(unittest.TestCase):
     """Test edge cases and error conditions for EventBacktester class."""

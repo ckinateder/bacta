@@ -15,7 +15,7 @@ from bacta.utilities.plotting import DEFAULT_FIGSIZE, plt_show
 logger = get_logger()
 
 # get version from pyproject.toml
-VERSION = "0.4.5"
+VERSION = "0.4.6"
 
 
 class Position(Enum):
@@ -937,14 +937,16 @@ class EventBacktester(ABC):
                     net_profits.loc[net_pointer,
                                     "win"] = pnl_pct > percentage_threshold
 
-                    # Update remaining quantities
-                    long_orders.loc[long_index, "quantity"] -= trade_quantity
-                    short_orders.loc[short_index, "quantity"] -= trade_quantity
+                    # Update remaining quantities - use iloc to avoid Series comparison issues
+                    long_orders.iloc[long_pointer, long_orders.columns.get_loc(
+                        "quantity")] -= trade_quantity
+                    short_orders.iloc[short_pointer, short_orders.columns.get_loc(
+                        "quantity")] -= trade_quantity
 
-                    # Move pointers
-                    if long_orders.loc[long_index, "quantity"] <= 0:
+                    # Move pointers - check quantities using iloc to avoid Series comparison issues
+                    if long_orders.iloc[long_pointer]["quantity"] <= 0:
                         long_pointer += 1
-                    if short_orders.loc[short_index, "quantity"] <= 0:
+                    if short_orders.iloc[short_pointer]["quantity"] <= 0:
                         short_pointer += 1
 
                 else:
@@ -971,14 +973,16 @@ class EventBacktester(ABC):
                     net_profits.loc[net_pointer,
                                     "win"] = pnl_pct > percentage_threshold
 
-                    # Update remaining quantities
-                    short_orders.loc[short_index, "quantity"] -= trade_quantity
-                    long_orders.loc[long_index, "quantity"] -= trade_quantity
+                    # Update remaining quantities - use iloc to avoid Series comparison issues
+                    short_orders.iloc[short_pointer, short_orders.columns.get_loc(
+                        "quantity")] -= trade_quantity
+                    long_orders.iloc[long_pointer, long_orders.columns.get_loc(
+                        "quantity")] -= trade_quantity
 
-                    # Move pointers
-                    if short_orders.loc[short_index, "quantity"] <= 0:
+                    # Move pointers - check quantities using iloc to avoid Series comparison issues
+                    if short_orders.iloc[short_pointer]["quantity"] <= 0:
                         short_pointer += 1
-                    if long_orders.loc[long_index, "quantity"] <= 0:
+                    if long_orders.iloc[long_pointer]["quantity"] <= 0:
                         long_pointer += 1
 
                 net_pointer += 1
