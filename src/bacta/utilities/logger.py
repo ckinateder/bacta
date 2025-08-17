@@ -15,8 +15,7 @@ def create_logger(name: str = "bacta", level: int = logging.INFO) -> logging.Log
 
         # Create formatter
         formatter = logging.Formatter(
-            '[%(asctime)s][%(levelname)s] %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
+            "[%(asctime)s][%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
         )
         console_handler.setFormatter(formatter)
 
@@ -77,7 +76,7 @@ def set_log_level(level: int = get_log_level()) -> None:
 
     Args:
         level: Logging level (e.g., logging.DEBUG, logging.INFO,
-               logging.WARNING, logging.ERROR, logging.CRITICAL). 
+               logging.WARNING, logging.ERROR, logging.CRITICAL).
                Defaults to the environment variable LOG_LEVEL.
 
     Examples:

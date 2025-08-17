@@ -220,7 +220,7 @@ strategy.plot_trade_history()
 ### Performance Metrics
 
 The framework calculates comprehensive performance metrics:
-
+s
 - **Return on Investment**: Total portfolio return
 - **Maximum Drawdown**: Largest peak-to-trough decline
 - **Win Rate**: Percentage of profitable trades
@@ -247,9 +247,9 @@ The framework includes a number of plotting methods for visualizing the performa
 - `plot_performance_analysis()`: Comprehensive performance dashboard
 - `plot_trade_history()`: Price charts with trade markers
 
-![Equity Curve](img/DTE_NRG_EMA_RSI_Strategy_Equity_Curve.png)
-![Performance Analysis](img/DTE_NRG_EMA_RSI_Strategy_Performance.png)
-![Trade History](img/DTE_NRG_EMA_RSI_Strategy_Trades.png)
+![Equity Curve](img/DUK_CMS_AAPL_Keltner_Channel_Strategy_Equity_Curve.png)
+![Performance Analysis](img/DUK_CMS_AAPL_Keltner_Channel_Strategy_Performance.png)
+![Trade History](img/DUK_CMS_AAPL_Keltner_Channel_Strategy_Trades.png)
 
 ## Examples
 

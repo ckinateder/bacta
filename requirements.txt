@@ -17,3 +17,5 @@ six==1.17.0
 tqdm==4.67.1
 tzdata==2025.2
 pytest==8.4.1
+setuptools==80.9.0
+build==1.0.3

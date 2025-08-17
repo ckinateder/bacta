@@ -18,7 +18,7 @@ load_dotenv()
 
 
 def floor_decimal(f, d):
-    n = 10 ** d
+    n = 10**d
     return floor(f * n) / n
 
 
@@ -45,7 +45,8 @@ def getenv(key: str) -> str | None:
     """
     if key not in os.environ:
         raise ValueError(
-            f"Environment variable {key} not found. Please set it in the .env file.")
+            f"Environment variable {key} not found. Please set it in the .env file."
+        )
     return os.getenv(key)
 
 
@@ -69,9 +70,7 @@ def save_dataframe(
     df.to_pickle(path + ".pkl")
 
 
-def load_dataframe(
-    filename: str, data_dir: str = getenv("DATA_DIR")
-) -> pd.DataFrame:
+def load_dataframe(filename: str, data_dir: str = getenv("DATA_DIR")) -> pd.DataFrame:
     """Load the data from a CSV and pickle file."""
     path = os.path.join(data_dir, filename)
     if os.path.exists(path + ".pkl"):

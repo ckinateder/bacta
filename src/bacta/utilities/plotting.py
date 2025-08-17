@@ -7,7 +7,9 @@ PLT_CNTR = 0
 DEFAULT_FIGSIZE = (15, 10)
 
 
-def plot_price_data(df: pd.DataFrame, title: str = "", figsize: tuple = DEFAULT_FIGSIZE):
+def plot_price_data(
+    df: pd.DataFrame, title: str = "", figsize: tuple = DEFAULT_FIGSIZE
+):
     """
     Plot the price data.
     Args:
@@ -41,7 +43,7 @@ def plot_split_dataframe(
     title: str = "",
     figsize: tuple = DEFAULT_FIGSIZE,
     split_label_1: str = "Train",
-    split_label_2: str = "Test"
+    split_label_2: str = "Test",
 ):
     """
     Plot a DataFrame split into two parts with a vertical dashed line at the split point.
@@ -58,24 +60,42 @@ def plot_split_dataframe(
 
     # Plot each column
     for i, column in enumerate(df.columns):
-        plt.plot(df.index[:split_index], df[column].iloc[:split_index],
-                 color="blue", label=f"{column} ({split_label_1})")
-        plt.plot(df.index[split_index:], df[column].iloc[split_index:],
-                 color="red",  label=f"{column} ({split_label_2})")
+        plt.plot(
+            df.index[:split_index],
+            df[column].iloc[:split_index],
+            color="blue",
+            label=f"{column} ({split_label_1})",
+        )
+        plt.plot(
+            df.index[split_index:],
+            df[column].iloc[split_index:],
+            color="red",
+            label=f"{column} ({split_label_2})",
+        )
 
     # Draw vertical dashed line at split
     if 0 < split_index < len(df):
         split_x = df.index[split_index]
-        plt.axvline(x=split_x, color="black",
-                    linestyle="dashed", linewidth=1.5, alpha=0.7)
+        plt.axvline(
+            x=split_x, color="black", linestyle="dashed", linewidth=1.5, alpha=0.7
+        )
         plt.text(
-            split_x, plt.ylim()[1], " Split", color="black", va="top", ha="left", fontsize=10, alpha=0.7
+            split_x,
+            plt.ylim()[1],
+            " Split",
+            color="black",
+            va="top",
+            ha="left",
+            fontsize=10,
+            alpha=0.7,
         )
 
     plt.xticks(
         df.index[:: max(1, len(df) // 20)],
-        [x.strftime("%Y-%m-%d") if hasattr(x, "strftime") else str(x)
-         for x in df.index[:: max(1, len(df) // 20)]],
+        [
+            x.strftime("%Y-%m-%d") if hasattr(x, "strftime") else str(x)
+            for x in df.index[:: max(1, len(df) // 20)]
+        ],
         rotation=45,
     )
     plt.xlabel("Date")
@@ -86,7 +106,12 @@ def plot_split_dataframe(
     plt.tight_layout()
 
 
-def plt_show(prefix: str = "plt", folder: str = "plots", plt_cntr: bool = False, show_plot: bool = True):
+def plt_show(
+    prefix: str = "plt",
+    folder: str = "plots",
+    plt_cntr: bool = False,
+    show_plot: bool = True,
+):
     """
     Show the plot and save it to the given folder.
 

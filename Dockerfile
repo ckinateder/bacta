@@ -20,6 +20,11 @@ WORKDIR /app
 # copy requirements
 COPY requirements.txt .
 COPY requirements-extras.txt .
+COPY pyproject.toml .
+COPY LICENSE .
+COPY src ./src
+COPY tests ./tests
+
 
 RUN if [ "$WITH_EXTRAS" = "true" ]; then \
     pip install -r requirements-extras.txt; \
