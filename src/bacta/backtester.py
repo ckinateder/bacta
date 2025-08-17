@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import List
+from typing import List, Union, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -596,7 +596,7 @@ class EventBacktester(ABC):
         output = "\n".join(output_lines)
         return output
 
-    def calculate_sharpe_ratio(self, risk_free_rate: float = 0.0, periods_per_year: int = 252) -> float:
+    def calculate_sharpe_ratio(self, risk_free_rate: float = 0.0, periods_per_year: int = None, return_cumulative: bool = False) -> Union[float, pd.Series, Tuple[float, pd.Series]]:
         """
         Calculate the Sharpe ratio for the backtest.
 
@@ -606,10 +606,14 @@ class EventBacktester(ABC):
         Args:
             risk_free_rate (float, optional): The risk-free rate of return (annualized). Defaults to 0.0.
             periods_per_year (int, optional): Number of periods per year for annualization.
-                Defaults to 252 for daily data, use 12 for monthly, 4 for quarterly, etc.
+                If None, automatically calculated from timestamp differences. Defaults to None.
+            return_cumulative (bool, optional): If True, also return the cumulative Sharpe ratio series.
+                Defaults to False.
 
         Returns:
-            float: The annualized Sharpe ratio
+            Union[float, pd.Series, Tuple[float, pd.Series]]: 
+                - If return_cumulative=False: The annualized Sharpe ratio (float)
+                - If return_cumulative=True: Tuple of (final_sharpe_ratio, cumulative_series)
 
         Raises:
             ValueError: If there's insufficient data to calculate the Sharpe ratio
@@ -617,54 +621,76 @@ class EventBacktester(ABC):
         if not self.__already_ran:
             logger.warning(
                 "Backtester has not been run. Run self.run_backtest() to run the backtest.")
+            if return_cumulative:
+                return 0.0, pd.Series(dtype=float)
             return 0.0
 
         state_history = self.get_state_history()
 
         if state_history.empty or len(state_history) < 2:
-            raise ValueError("Insufficient data to calculate Sharpe ratio")
+            if return_cumulative:
+                raise ValueError("Insufficient data to calculate Sharpe ratio")
+            else:
+                raise ValueError("Insufficient data to calculate Sharpe ratio")
 
         # Get portfolio values, excluding the initial state (index 0)
         portfolio_values = state_history["portfolio_value"]
         portfolio_values_filtered = portfolio_values[portfolio_values.index != 0]
 
         if len(portfolio_values_filtered) < 2:
-            raise ValueError(
-                "Insufficient trading data to calculate Sharpe ratio")
+            if return_cumulative:
+                raise ValueError(
+                    "Insufficient trading data to calculate Sharpe ratio")
+            else:
+                raise ValueError(
+                    "Insufficient trading data to calculate Sharpe ratio")
 
         # Calculate returns
         returns = portfolio_values_filtered.pct_change().dropna()
 
         if len(returns) == 0:
-            raise ValueError("No valid returns data to calculate Sharpe ratio")
+            if return_cumulative:
+                raise ValueError(
+                    "No valid returns data to calculate Sharpe ratio")
+            else:
+                raise ValueError(
+                    "No valid returns data to calculate Sharpe ratio")
 
-        # Calculate mean return and standard deviation
-        mean_return = returns.mean()
-        std_return = returns.std()
-        # If std_return is nan (e.g. only two identical returns), treat as zero
-        if np.isnan(std_return):
-            std_return = 0.0
+        # Auto-calculate periods per year if not provided
+        if periods_per_year is None:
+            periods_per_year = auto_calculate_periods_per_year(
+                portfolio_values_filtered)
 
-        # Handle edge case where standard deviation is zero
-        if std_return == 0:
-            rf_per_period = risk_free_rate / periods_per_year
-            if np.isclose(mean_return, rf_per_period, atol=1e-10):
-                return 0.0  # Zero Sharpe ratio when return equals risk-free rate
-            elif mean_return > rf_per_period:
-                # Infinite Sharpe ratio for risk-free positive returns
-                return float('inf')
-            elif mean_return < rf_per_period:
-                # Negative infinite Sharpe ratio for risk-free negative returns
-                return float('-inf')
+        # Calculate final Sharpe ratio
+        final_sharpe = calculate_sharpe_ratio_from_returns(
+            returns, risk_free_rate, periods_per_year)
 
-        # Annualize the returns and standard deviation
-        annualized_return = mean_return * periods_per_year
-        annualized_std = std_return * np.sqrt(periods_per_year)
+        # If only final Sharpe ratio is requested, return it
+        if not return_cumulative:
+            return final_sharpe
 
-        # Calculate Sharpe ratio
-        sharpe_ratio = (annualized_return - risk_free_rate) / annualized_std
+        # Calculate cumulative average Sharpe ratio
+        cumulative_sharpe = pd.Series(index=returns.index, dtype=float)
 
-        return sharpe_ratio
+        for i in range(len(returns)):
+            # Get all returns from the beginning up to the current point
+            cumulative_returns = returns.iloc[:i+1]
+
+            # Use the shared calculation method for consistency
+            sharpe_ratio = calculate_sharpe_ratio_from_returns(
+                cumulative_returns, risk_free_rate, periods_per_year)
+
+            # Handle infinite values by capping them
+            if np.isinf(sharpe_ratio):
+                if sharpe_ratio > 0:
+                    cumulative_sharpe.iloc[i] = 10.0  # Cap at reasonable value
+                else:
+                    cumulative_sharpe.iloc[i] = - \
+                        10.0  # Cap at reasonable value
+            else:
+                cumulative_sharpe.iloc[i] = sharpe_ratio
+
+        return final_sharpe, cumulative_sharpe
 
     def get_win_rate(self, percentage_threshold: float = 0.0, return_net_profits: bool = False) -> tuple[float, pd.DataFrame]:
         """Get the win rate of the backtest. This is done by calculating the net profit for each open position.
@@ -1184,20 +1210,29 @@ class EventBacktester(ABC):
         ax3.legend()
         ax3.grid(True, linestyle='--', alpha=0.7)
 
-        # Subplot 4: symbol Prices
-        if hasattr(self, 'test_bars') and self.test_bars is not None:
-            for symbol in self.active_symbols:
-                if symbol in self.test_bars.index.get_level_values(0):
-                    ax4.step(self.test_bars.xs(symbol, level=0).index, self.test_bars.xs(symbol, level=0).loc[:, "close"],
-                             label=symbol, linewidth=1.5, where='post')
-            ax4.set_title("Symbol Prices")
-            ax4.set_ylabel("Price ($)")
+        # Subplot 4: Cumulative Sharpe Ratio
+        final_sharpe, cumulative_sharpe = self.calculate_sharpe_ratio(
+            periods_per_year=None, return_cumulative=True)
+        if not cumulative_sharpe.empty:
+            ax4.plot(cumulative_sharpe.index, cumulative_sharpe.values,
+                     label="Cumulative Sharpe Ratio", linewidth=2, color='purple')
+
+            # Add final Sharpe ratio line (should match calculate_sharpe_ratio)
+            ax4.axhline(y=final_sharpe, color='orange', linestyle='-',
+                        alpha=0.8, linewidth=2, label=f'Final: {final_sharpe:.3f}')
+
+            ax4.axhline(y=0, color='red', linestyle='--',
+                        alpha=0.7, label='Zero Sharpe')
+            ax4.axhline(y=1, color='green', linestyle='--',
+                        alpha=0.7, label='Sharpe = 1')
+            ax4.set_title("Cumulative Sharpe Ratio")
+            ax4.set_ylabel("Sharpe Ratio")
             ax4.legend()
             ax4.grid(True, linestyle='--', alpha=0.7)
         else:
-            ax4.text(0.5, 0.5, 'No test prices available',
+            ax4.text(0.5, 0.5, 'Insufficient data for cumulative Sharpe ratio',
                      transform=ax4.transAxes, ha='center', va='center')
-            ax4.set_title("symbol Prices")
+            ax4.set_title("Cumulative Sharpe Ratio")
 
         # Subplot 5: Buy and Hold Returns
         if hasattr(self, 'test_bars') and self.test_bars is not None:
@@ -1473,6 +1508,90 @@ class WalkForwardBacktester(EventBacktester):
         self.single_tester = single_tester
         self.walk_forward_periods = walk_forward_periods
         self.split_ratio = split_ratio
+
+
+def calculate_sharpe_ratio_from_returns(returns: pd.Series, risk_free_rate: float, periods_per_year: int) -> float:
+    """
+    Internal method to calculate Sharpe ratio from a series of returns.
+    This ensures consistent calculation logic between single and cumulative Sharpe ratios.
+
+    Args:
+        returns (pd.Series): Series of returns
+        risk_free_rate (float): Annualized risk-free rate
+        periods_per_year (int): Number of periods per year
+
+    Returns:
+        float: Calculated Sharpe ratio
+    """
+    if len(returns) == 0:
+        return 0.0
+
+    # Calculate mean return and standard deviation
+    mean_return = returns.mean()
+    std_return = returns.std()
+
+    # If std_return is nan (e.g. only two identical returns), treat as zero
+    if np.isnan(std_return):
+        std_return = 0.0
+
+    # Handle edge case where standard deviation is zero
+    if std_return == 0:
+        rf_per_period = risk_free_rate / periods_per_year
+        if np.isclose(mean_return, rf_per_period, atol=1e-10):
+            return 0.0  # Zero Sharpe ratio when return equals risk-free rate
+        elif mean_return > rf_per_period:
+            # Infinite Sharpe ratio for risk-free positive returns
+            return float('inf')
+        elif mean_return < rf_per_period:
+            # Negative infinite Sharpe ratio for risk-free negative returns
+            return float('-inf')
+
+    # Annualize the returns and standard deviation
+    annualized_return = mean_return * periods_per_year
+    annualized_std = std_return * np.sqrt(periods_per_year)
+
+    # Calculate Sharpe ratio
+    sharpe_ratio = (annualized_return - risk_free_rate) / annualized_std
+
+    return sharpe_ratio
+
+
+def auto_calculate_periods_per_year(data: pd.Series) -> int:
+    """
+    Automatically calculate periods per year from timestamp differences.
+
+    Args:
+        data (pd.Series): Series with timestamp index
+
+    Returns:
+        int: Calculated periods per year
+    """
+    # Get timestamps (excluding the initial state index 0)
+    timestamps = data.index
+
+    if len(timestamps) >= 2:
+        # Calculate average time difference between consecutive timestamps
+        time_diffs = []
+        for i in range(1, len(timestamps)):
+            diff = timestamps[i] - timestamps[i-1]
+            time_diffs.append(diff.total_seconds())
+
+        if time_diffs:
+            avg_time_diff_seconds = np.mean(time_diffs)
+            # Convert to periods per year
+            periods_per_year = int(
+                365.25 * 24 * 3600 / avg_time_diff_seconds)
+            logger.info(
+                f"Auto-calculated periods per year: {periods_per_year} (avg time diff: {avg_time_diff_seconds:.1f} seconds)")
+            return periods_per_year
+        else:
+            logger.warning(
+                "Could not calculate periods per year, using default: 252")
+            return 252  # Fallback to daily
+    else:
+        logger.warning(
+            "Insufficient timestamps to calculate periods per year, using default: 252")
+        return 252  # Fallback to daily
 
 
 """

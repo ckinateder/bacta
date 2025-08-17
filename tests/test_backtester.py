@@ -18,6 +18,7 @@ class TestEventBacktester(EventBacktester):
     Concrete implementation of EventBacktester for testing purposes.
     This implements a simple buy-and-hold strategy.
     """
+    __test__ = False
 
     def __init__(self, active_symbols: list[str], cash: float = 1000, **kwargs):
         super().__init__(active_symbols, cash, market_hours_only=False, **kwargs)
@@ -49,6 +50,7 @@ class TestEventBacktesterAdvanced(EventBacktester):
     """
     More advanced test implementation that makes multiple trades.
     """
+    __test__ = False
 
     def __init__(self, active_symbols: list[str], cash: float = 100):
         super().__init__(active_symbols, cash, market_hours_only=False)
@@ -87,6 +89,7 @@ class TestEventBacktesterDirectOrder(EventBacktester):
     """
     Test implementation that allows direct order placement for testing.
     """
+    __test__ = False
 
     def __init__(self, active_symbols: list[str], cash: float = 1000, **kwargs):
         super().__init__(active_symbols, cash, market_hours_only=False, **kwargs)

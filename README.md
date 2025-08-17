@@ -285,7 +285,7 @@ There's also a [VS Code Dev Container](https://code.visualstudio.com/docs/devcon
 
 Make sure all tests pass before making a PR. Run all tests with:
 ```bash
-python -m unittest discover tests
+python -m pytest tests
 ```
 
 ## Roadmap
