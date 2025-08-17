@@ -1,4 +1,4 @@
-from bacta.backtester import EventBacktester, Position, Order
+from bacta.backtester import EventBacktester, Order, Side
 import unittest
 import pandas as pd
 import numpy as np
@@ -41,7 +41,7 @@ class TestEventBacktester(EventBacktester):
         orders = []
         for symbol in self.active_symbols:
             if symbol in close_prices.index:
-                orders.append(Order(symbol, Position.LONG,
+                orders.append(Order(symbol, Side.BUY,
                               close_prices[symbol], 1))
         return orders
 
@@ -74,11 +74,11 @@ class TestEventBacktesterAdvanced(EventBacktester):
             if symbol in close_prices.index:
                 if self.trade_count % 2 == 0:
                     # Buy on even trades
-                    order = Order(symbol, Position.LONG,
+                    order = Order(symbol, Side.BUY,
                                   close_prices[symbol], 1)
                 else:
                     # Sell on odd trades
-                    order = Order(symbol, Position.SHORT,
+                    order = Order(symbol, Side.SELL,
                                   close_prices[symbol], 1)
                 orders.append(order)
                 self.trade_count += 1
@@ -198,7 +198,7 @@ class TestEventBacktesterUnit(unittest.TestCase):
         initial_cash = self.backtester.get_state()["cash"]
         initial_position = self.backtester.get_state()[symbol]
 
-        order = Order(symbol, Position.LONG, price, quantity)
+        order = Order(symbol, Side.BUY, price, quantity)
         self.backtester._place_buy_order(order, timestamp)
 
         # Check state updates
@@ -215,7 +215,7 @@ class TestEventBacktesterUnit(unittest.TestCase):
         history = self.backtester.get_history()
         self.assertEqual(len(history), 1)
         self.assertEqual(history.iloc[0]["symbol"], symbol)
-        self.assertEqual(history.iloc[0]["position"], Position.LONG.value)
+        self.assertEqual(history.iloc[0]["side"], Side.BUY.value)
         self.assertEqual(history.iloc[0]["price"], price)
         self.assertEqual(history.iloc[0]["quantity"], quantity)
 
@@ -227,14 +227,14 @@ class TestEventBacktesterUnit(unittest.TestCase):
         timestamp = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
 
         # First buy some shares
-        buy_order = Order(symbol, Position.LONG, 100.0, 5)
+        buy_order = Order(symbol, Side.BUY, 100.0, 5)
         self.backtester._place_buy_order(buy_order, timestamp)
 
         initial_cash = self.backtester.get_state()["cash"]
         initial_position = self.backtester.get_state()[symbol]
 
         # Now sell
-        sell_order = Order(symbol, Position.SHORT, price, quantity)
+        sell_order = Order(symbol, Side.SELL, price, quantity)
         self.backtester._place_sell_order(sell_order, timestamp)
 
         # Check state updates
@@ -251,7 +251,7 @@ class TestEventBacktesterUnit(unittest.TestCase):
         # Check order history
         history = self.backtester.get_history()
         self.assertEqual(len(history), 2)  # Buy + sell
-        self.assertEqual(history.iloc[1]["position"], Position.SHORT.value)
+        self.assertEqual(history.iloc[1]["side"], Side.SELL.value)
 
     def test__place_order(self):
         """Test the generic _place_order method."""
@@ -261,12 +261,12 @@ class TestEventBacktesterUnit(unittest.TestCase):
         timestamp = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
 
         # Test LONG order
-        order = Order(symbol, Position.LONG, price, quantity)
+        order = Order(symbol, Side.BUY, price, quantity)
         self.backtester._place_order(order, timestamp)
         self.assertEqual(self.backtester.get_state()[symbol], 1)
 
         # Test SHORT order
-        order = Order(symbol, Position.SHORT, price, quantity)
+        order = Order(symbol, Side.SELL, price, quantity)
         self.backtester._place_order(order, timestamp)
         self.assertEqual(self.backtester.get_state()[symbol], 0)  # Back to 0
 
@@ -275,8 +275,8 @@ class TestEventBacktesterUnit(unittest.TestCase):
         timestamp = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
 
         # Buy some positions
-        aapl_order = Order("AAPL", Position.LONG, 150.0, 2)
-        googl_order = Order("GOOGL", Position.LONG, 200.0, 1)
+        aapl_order = Order("AAPL", Side.BUY, 150.0, 2)
+        googl_order = Order("GOOGL", Side.BUY, 200.0, 1)
         self.backtester._place_buy_order(aapl_order, timestamp)
         self.backtester._place_buy_order(googl_order, timestamp)
 
@@ -297,8 +297,8 @@ class TestEventBacktesterUnit(unittest.TestCase):
         timestamp = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
 
         # Buy some positions
-        aapl_order = Order("AAPL", Position.LONG, 150.0, 2)
-        googl_order = Order("GOOGL", Position.LONG, 200.0, 1)
+        aapl_order = Order("AAPL", Side.BUY, 150.0, 2)
+        googl_order = Order("GOOGL", Side.BUY, 200.0, 1)
         self.backtester._place_buy_order(aapl_order, timestamp)
         self.backtester._place_buy_order(googl_order, timestamp)
 
@@ -381,7 +381,7 @@ class TestEventBacktesterUnit(unittest.TestCase):
         """Test getting state history."""
         # Make some trades
         timestamp = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
-        order = Order("AAPL", Position.LONG, 150.0, 1)
+        order = Order("AAPL", Side.BUY, 150.0, 1)
         self.backtester._place_buy_order(order, timestamp)
 
         # Get state history
@@ -398,8 +398,8 @@ class TestEventBacktesterUnit(unittest.TestCase):
         """Test getting order history."""
         # Make some trades
         timestamp = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
-        buy_order = Order("AAPL", Position.LONG, 150.0, 1)
-        sell_order = Order("GOOGL", Position.SHORT, 200.0, 1)
+        buy_order = Order("AAPL", Side.BUY, 150.0, 1)
+        sell_order = Order("GOOGL", Side.SELL, 200.0, 1)
         self.backtester._place_buy_order(buy_order, timestamp)
         self.backtester._place_sell_order(sell_order, timestamp)
 
@@ -409,7 +409,7 @@ class TestEventBacktesterUnit(unittest.TestCase):
         # Check structure
         self.assertIsInstance(history, pd.DataFrame)
         self.assertIn("symbol", history.columns)
-        self.assertIn("position", history.columns)
+        self.assertIn("side", history.columns)
         self.assertIn("price", history.columns)
         self.assertIn("quantity", history.columns)
 
@@ -551,11 +551,11 @@ class TestEventBacktesterIntegration(unittest.TestCase):
         # case 1: Traditional long trades (LONG -> SHORT)
         self.backtester.initialize_bank(cash=10000.0)
         orders = [
-            Order("AAPL", Position.LONG, 20.0, 1),
-            Order("AAPL", Position.LONG, 21.0, 2),
-            Order("AAPL", Position.LONG, 25.0, 1),
-            Order("AAPL", Position.SHORT, 24.0, 1),
-            Order("AAPL", Position.SHORT, 22.0, 3),
+            Order("AAPL", Side.BUY, 20.0, 1),
+            Order("AAPL", Side.BUY, 21.0, 2),
+            Order("AAPL", Side.BUY, 25.0, 1),
+            Order("AAPL", Side.SELL, 24.0, 1),
+            Order("AAPL", Side.SELL, 22.0, 3),
         ]
 
         for i in range(len(orders)):
@@ -585,11 +585,11 @@ class TestEventBacktesterIntegration(unittest.TestCase):
         # case 2: More complex long trades
         self.backtester.initialize_bank(cash=10000.0)
         orders = [
-            Order("AAPL", Position.LONG, 20.0, 1),
-            Order("AAPL", Position.LONG, 21.0, 2),
-            Order("AAPL", Position.LONG, 25.0, 1),
-            Order("AAPL", Position.SHORT, 24.0, 3),
-            Order("AAPL", Position.SHORT, 22.0, 1),
+            Order("AAPL", Side.BUY, 20.0, 1),
+            Order("AAPL", Side.BUY, 21.0, 2),
+            Order("AAPL", Side.BUY, 25.0, 1),
+            Order("AAPL", Side.SELL, 24.0, 3),
+            Order("AAPL", Side.SELL, 22.0, 1),
         ]
 
         for i in range(len(orders)):
@@ -618,16 +618,16 @@ class TestEventBacktesterIntegration(unittest.TestCase):
         # case 3: Multiple symbols
         self.backtester.initialize_bank(cash=10000)
         orders = [
-            Order("AAPL", Position.LONG, 20.0, 1),
-            Order("AAPL", Position.LONG, 21.0, 2),
-            Order("AAPL", Position.LONG, 25.0, 1),
-            Order("GOOGL", Position.LONG, 17.0, 1),
-            Order("GOOGL", Position.LONG, 11.0, 2),
-            Order("AAPL", Position.SHORT, 24.0, 3),
-            Order("AAPL", Position.SHORT, 22.0, 1),
-            Order("GOOGL", Position.LONG, 15.0, 1),
-            Order("GOOGL", Position.SHORT, 19.0, 3),
-            Order("GOOGL", Position.SHORT, 16.0, 1),
+            Order("AAPL", Side.BUY, 20.0, 1),
+            Order("AAPL", Side.BUY, 21.0, 2),
+            Order("AAPL", Side.BUY, 25.0, 1),
+            Order("GOOGL", Side.BUY, 17.0, 1),
+            Order("GOOGL", Side.BUY, 11.0, 2),
+            Order("AAPL", Side.SELL, 24.0, 3),
+            Order("AAPL", Side.SELL, 22.0, 1),
+            Order("GOOGL", Side.BUY, 15.0, 1),
+            Order("GOOGL", Side.SELL, 19.0, 3),
+            Order("GOOGL", Side.SELL, 16.0, 1),
         ]
 
         for i in range(len(orders)):
@@ -662,10 +662,10 @@ class TestEventBacktesterIntegration(unittest.TestCase):
         # test unclosed positions
         self.backtester.initialize_bank(cash=10000)
         orders = [
-            Order("AAPL", Position.LONG, 20.0, 1),
-            Order("AAPL", Position.LONG, 21.0, 2),
-            Order("AAPL", Position.LONG, 25.0, 1),
-            Order("AAPL", Position.SHORT, 24.0, 3),
+            Order("AAPL", Side.BUY, 20.0, 1),
+            Order("AAPL", Side.BUY, 21.0, 2),
+            Order("AAPL", Side.BUY, 25.0, 1),
+            Order("AAPL", Side.SELL, 24.0, 3),
         ]
 
         for i in range(len(orders)):
@@ -694,11 +694,11 @@ class TestEventBacktesterIntegration(unittest.TestCase):
         # case 1: Pure short trades (SHORT -> LONG)
         self.backtester.initialize_bank(cash=10000.0)
         orders = [
-            Order("AAPL", Position.SHORT, 25.0, 1),  # Sell high
-            Order("AAPL", Position.SHORT, 24.0, 2),  # Sell high
-            Order("AAPL", Position.SHORT, 30.0, 1),  # Sell high
-            Order("AAPL", Position.LONG, 20.0, 1),   # Buy low
-            Order("AAPL", Position.LONG, 22.0, 3),   # Buy low
+            Order("AAPL", Side.SELL, 25.0, 1),  # Sell high
+            Order("AAPL", Side.SELL, 24.0, 2),  # Sell high
+            Order("AAPL", Side.SELL, 30.0, 1),  # Sell high
+            Order("AAPL", Side.BUY, 20.0, 1),   # Buy low
+            Order("AAPL", Side.BUY, 22.0, 3),   # Buy low
         ]
 
         for i in range(len(orders)):
@@ -728,11 +728,11 @@ class TestEventBacktesterIntegration(unittest.TestCase):
         # case 2: Mixed short trades with losses
         self.backtester.initialize_bank(cash=10000.0)
         orders = [
-            Order("AAPL", Position.SHORT, 25.0, 1),  # Sell high
-            Order("AAPL", Position.SHORT, 24.0, 2),  # Sell high
-            Order("AAPL", Position.SHORT, 20.0, 1),  # Sell low (will lose)
-            Order("AAPL", Position.LONG, 22.0, 3),   # Buy higher
-            Order("AAPL", Position.LONG, 18.0, 1),   # Buy low
+            Order("AAPL", Side.SELL, 25.0, 1),  # Sell high
+            Order("AAPL", Side.SELL, 24.0, 2),  # Sell high
+            Order("AAPL", Side.SELL, 20.0, 1),  # Sell low (will lose)
+            Order("AAPL", Side.BUY, 22.0, 3),   # Buy higher
+            Order("AAPL", Side.BUY, 18.0, 1),   # Buy low
         ]
 
         for i in range(len(orders)):
@@ -765,14 +765,14 @@ class TestEventBacktesterIntegration(unittest.TestCase):
         self.backtester.initialize_bank(cash=10000.0)
         orders = [
             # Long trades
-            Order("AAPL", Position.LONG, 20.0, 1),
-            Order("AAPL", Position.LONG, 21.0, 1),
+            Order("AAPL", Side.BUY, 20.0, 1),
+            Order("AAPL", Side.BUY, 21.0, 1),
             # Short trades
-            Order("AAPL", Position.SHORT, 25.0, 1),
-            Order("AAPL", Position.SHORT, 24.0, 1),
+            Order("AAPL", Side.SELL, 25.0, 1),
+            Order("AAPL", Side.SELL, 24.0, 1),
             # Closing orders
-            Order("AAPL", Position.SHORT, 22.0, 2),  # Close long positions
-            Order("AAPL", Position.LONG, 18.0, 2),   # Close short positions
+            Order("AAPL", Side.SELL, 22.0, 2),  # Close long positions
+            Order("AAPL", Side.BUY, 18.0, 2),   # Close short positions
         ]
 
         for i in range(len(orders)):
@@ -804,15 +804,15 @@ class TestEventBacktesterIntegration(unittest.TestCase):
         self.backtester.initialize_bank(cash=10000.0)
         orders = [
             # AAPL trades
-            Order("AAPL", Position.LONG, 20.0, 1),
-            Order("AAPL", Position.SHORT, 25.0, 1),
-            Order("AAPL", Position.SHORT, 24.0, 1),
-            Order("AAPL", Position.LONG, 18.0, 2),
+            Order("AAPL", Side.BUY, 20.0, 1),
+            Order("AAPL", Side.SELL, 25.0, 1),
+            Order("AAPL", Side.SELL, 24.0, 1),
+            Order("AAPL", Side.BUY, 18.0, 2),
             # GOOGL trades
-            Order("GOOGL", Position.SHORT, 30.0, 1),
-            Order("GOOGL", Position.LONG, 25.0, 1),
-            Order("GOOGL", Position.LONG, 20.0, 1),
-            Order("GOOGL", Position.SHORT, 22.0, 2),
+            Order("GOOGL", Side.SELL, 30.0, 1),
+            Order("GOOGL", Side.BUY, 25.0, 1),
+            Order("GOOGL", Side.BUY, 20.0, 1),
+            Order("GOOGL", Side.SELL, 22.0, 2),
         ]
 
         for i in range(len(orders)):
@@ -849,8 +849,8 @@ class TestEventBacktesterIntegration(unittest.TestCase):
         # case 2: Only long positions (no exits)
         self.backtester.initialize_bank(cash=10000.0)
         orders = [
-            Order("AAPL", Position.LONG, 20.0, 1),
-            Order("AAPL", Position.LONG, 21.0, 1),
+            Order("AAPL", Side.BUY, 20.0, 1),
+            Order("AAPL", Side.BUY, 21.0, 1),
         ]
         for i in range(len(orders)):
             self.backtester._place_order(orders[i], pd.Timestamp(
@@ -864,8 +864,8 @@ class TestEventBacktesterIntegration(unittest.TestCase):
         # case 3: Only short positions (no exits)
         self.backtester.initialize_bank(cash=10000.0)
         orders = [
-            Order("AAPL", Position.SHORT, 25.0, 1),
-            Order("AAPL", Position.SHORT, 24.0, 1),
+            Order("AAPL", Side.SELL, 25.0, 1),
+            Order("AAPL", Side.SELL, 24.0, 1),
         ]
         for i in range(len(orders)):
             self.backtester._place_order(orders[i], pd.Timestamp(
@@ -879,9 +879,9 @@ class TestEventBacktesterIntegration(unittest.TestCase):
         # case 4: Uneven quantities
         self.backtester.initialize_bank(cash=10000.0)
         orders = [
-            Order("AAPL", Position.LONG, 20.0, 3),   # Buy 3
-            Order("AAPL", Position.SHORT, 22.0, 1),  # Sell 1
-            Order("AAPL", Position.SHORT, 24.0, 2),  # Sell 2 (closes position)
+            Order("AAPL", Side.BUY, 20.0, 3),   # Buy 3
+            Order("AAPL", Side.SELL, 22.0, 1),  # Sell 1
+            Order("AAPL", Side.SELL, 24.0, 2),  # Sell 2 (closes position)
         ]
         for i in range(len(orders)):
             self.backtester._place_order(orders[i], pd.Timestamp(
@@ -902,17 +902,17 @@ class TestEventBacktesterIntegration(unittest.TestCase):
         self.backtester.initialize_bank(cash=10000.0)
         orders = [
             # Long trades with different profit levels
-            Order("AAPL", Position.LONG, 100.0, 1),
-            Order("AAPL", Position.SHORT, 110.0, 1),  # 10% profit
-            Order("AAPL", Position.LONG, 100.0, 1),
-            Order("AAPL", Position.SHORT, 105.0, 1),  # 5% profit
-            Order("AAPL", Position.LONG, 100.0, 1),
-            Order("AAPL", Position.SHORT, 95.0, 1),   # 5% loss
+            Order("AAPL", Side.BUY, 100.0, 1),
+            Order("AAPL", Side.SELL, 110.0, 1),  # 10% profit
+            Order("AAPL", Side.BUY, 100.0, 1),
+            Order("AAPL", Side.SELL, 105.0, 1),  # 5% profit
+            Order("AAPL", Side.BUY, 100.0, 1),
+            Order("AAPL", Side.SELL, 95.0, 1),   # 5% loss
             # Short trades with different profit levels
-            Order("AAPL", Position.SHORT, 110.0, 1),
-            Order("AAPL", Position.LONG, 100.0, 1),   # 10% profit
-            Order("AAPL", Position.SHORT, 105.0, 1),
-            Order("AAPL", Position.LONG, 100.0, 1),   # 5% profit
+            Order("AAPL", Side.SELL, 110.0, 1),
+            Order("AAPL", Side.BUY, 100.0, 1),   # 10% profit
+            Order("AAPL", Side.SELL, 105.0, 1),
+            Order("AAPL", Side.BUY, 100.0, 1),   # 5% profit
         ]
 
         for i in range(len(orders)):
@@ -944,17 +944,17 @@ class TestEventBacktesterIntegration(unittest.TestCase):
 
         orders = [
             # First set of orders at the same timestamp
-            Order("AAPL", Position.LONG, 100.0, 1),      # Entry at 100
+            Order("AAPL", Side.BUY, 100.0, 1),      # Entry at 100
             # Entry at 101 (same timestamp)
-            Order("AAPL", Position.LONG, 101.0, 1),
+            Order("AAPL", Side.BUY, 101.0, 1),
             # Exit at 105 (same timestamp)
-            Order("AAPL", Position.SHORT, 105.0, 1),
+            Order("AAPL", Side.SELL, 105.0, 1),
             # Exit at 106 (same timestamp)
-            Order("AAPL", Position.SHORT, 106.0, 1),
+            Order("AAPL", Side.SELL, 106.0, 1),
 
             # Second set of orders at a different timestamp
-            Order("AAPL", Position.LONG, 110.0, 1),      # Entry at 110
-            Order("AAPL", Position.SHORT, 115.0, 1),     # Exit at 115
+            Order("AAPL", Side.BUY, 110.0, 1),      # Entry at 110
+            Order("AAPL", Side.SELL, 115.0, 1),     # Exit at 115
         ]
 
         # Place orders with some at the same timestamp
@@ -1044,7 +1044,7 @@ class TestEventBacktesterEdgeCases(unittest.TestCase):
             self.symbols, 1000.0, min_trade_value=100.0)
 
         # Create an order with value less than minimum
-        order = Order("AAPL", Position.LONG, 10.0, 5)  # Value = 50
+        order = Order("AAPL", Side.BUY, 10.0, 5)  # Value = 50
         timestamp = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
 
         initial_cash = backtester.get_state()["cash"]
@@ -1060,7 +1060,7 @@ class TestEventBacktesterEdgeCases(unittest.TestCase):
 
         # Try to place an order that exceeds available cash
         # Value = 250, but only 100 cash
-        order = Order("AAPL", Position.LONG, 50.0, 5)
+        order = Order("AAPL", Side.BUY, 50.0, 5)
         timestamp = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
 
         backtester._place_order(order, timestamp)
@@ -1082,7 +1082,7 @@ class TestEventBacktesterEdgeCases(unittest.TestCase):
             self.symbols, 1000.0, allow_short=False)
 
         # Try to place a short order
-        order = Order("AAPL", Position.SHORT, 50.0, 5)
+        order = Order("AAPL", Side.SELL, 50.0, 5)
         timestamp = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
 
         backtester._place_order(order, timestamp)
@@ -1100,7 +1100,7 @@ class TestEventBacktesterEdgeCases(unittest.TestCase):
 
     def test_single_order_win_rate(self):
         """Test win rate calculation with only one order (unclosed position)."""
-        order = Order("AAPL", Position.LONG, 100.0, 1)
+        order = Order("AAPL", Side.BUY, 100.0, 1)
         timestamp = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
         self.backtester._place_order(order, timestamp)
 
@@ -1128,7 +1128,7 @@ class TestEventBacktesterEdgeCases(unittest.TestCase):
             self.symbols, 200000000.0)  # 200M cash to cover 100M order
 
         # Test with very large quantity
-        order = Order("AAPL", Position.LONG, 100.0, 1000000)
+        order = Order("AAPL", Side.BUY, 100.0, 1000000)
         timestamp = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
 
         direct_backtester._place_order(order, timestamp)
@@ -1144,7 +1144,7 @@ class TestEventBacktesterEdgeCases(unittest.TestCase):
 
     def test_zero_quantity_orders(self):
         """Test handling of zero quantity orders."""
-        order = Order("AAPL", Position.LONG, 100.0, 0)
+        order = Order("AAPL", Side.BUY, 100.0, 0)
         timestamp = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
 
         initial_cash = self.backtester.get_state()["cash"]
@@ -1158,7 +1158,7 @@ class TestEventBacktesterEdgeCases(unittest.TestCase):
     def test_portfolio_value_with_negative_positions(self):
         """Test portfolio value calculation with negative positions."""
         # Create a short position
-        order = Order("AAPL", Position.SHORT, 100.0, 2)
+        order = Order("AAPL", Side.SELL, 100.0, 2)
         timestamp = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
         self.backtester._place_order(order, timestamp)
 
@@ -1185,7 +1185,7 @@ class TestEventBacktesterEdgeCases(unittest.TestCase):
         timestamp = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
 
         initial_cash = backtester.get_state()["cash"]
-        order = Order(symbol, Position.LONG, price, quantity)
+        order = Order(symbol, Side.BUY, price, quantity)
 
         # Calculate expected transaction cost
         expected_transaction_cost = price * quantity * 0.01  # 1% of order value
@@ -1211,7 +1211,7 @@ class TestEventBacktesterEdgeCases(unittest.TestCase):
         timestamp = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
 
         initial_cash = backtester.get_state()["cash"]
-        order = Order(symbol, Position.LONG, price, quantity)
+        order = Order(symbol, Side.BUY, price, quantity)
 
         # Dollar transaction cost is fixed
         expected_transaction_cost = 5.0
@@ -1237,7 +1237,7 @@ class TestEventBacktesterEdgeCases(unittest.TestCase):
         timestamp = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
 
         initial_cash = backtester.get_state()["cash"]
-        order = Order(symbol, Position.LONG, price, quantity)
+        order = Order(symbol, Side.BUY, price, quantity)
 
         # Zero transaction cost
         expected_transaction_cost = 0.0
@@ -1263,7 +1263,7 @@ class TestEventBacktesterEdgeCases(unittest.TestCase):
         timestamp = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
 
         initial_cash = backtester.get_state()["cash"]
-        order = Order(symbol, Position.LONG, price, quantity)
+        order = Order(symbol, Side.BUY, price, quantity)
 
         backtester._place_order(order, timestamp)
 
@@ -1278,7 +1278,7 @@ class TestEventBacktesterEdgeCases(unittest.TestCase):
         self.assertGreater(final_state[symbol], 0)    # Should be > 0 shares
 
         # Verify transaction cost was applied to the adjusted order
-        adjusted_order = Order(symbol, Position.LONG,
+        adjusted_order = Order(symbol, Side.BUY,
                                price, final_state[symbol])
         expected_transaction_cost = backtester._calculate_transaction_cost(
             adjusted_order)
@@ -1298,7 +1298,7 @@ class TestEventBacktesterEdgeCases(unittest.TestCase):
         timestamp = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
 
         # Buy order
-        buy_order = Order(symbol, Position.LONG, price, quantity)
+        buy_order = Order(symbol, Side.BUY, price, quantity)
         initial_cash = backtester.get_state()["cash"]
 
         backtester._place_order(buy_order, timestamp)
@@ -1312,7 +1312,7 @@ class TestEventBacktesterEdgeCases(unittest.TestCase):
         self.assertEqual(backtester.get_state()[symbol], quantity)
 
         # Sell order
-        sell_order = Order(symbol, Position.SHORT, price, quantity)
+        sell_order = Order(symbol, Side.SELL, price, quantity)
         cash_before_sell = backtester.get_state()["cash"]
 
         backtester._place_order(sell_order, timestamp)
@@ -1499,12 +1499,12 @@ class TestEventBacktesterAdvancedFeatures(unittest.TestCase):
         """Test win rate calculation with different thresholds."""
         # Create some trades with known outcomes
         orders = [
-            Order("AAPL", Position.LONG, 100.0, 1),
-            Order("AAPL", Position.SHORT, 110.0, 1),  # 10% profit
-            Order("AAPL", Position.LONG, 100.0, 1),
-            Order("AAPL", Position.SHORT, 105.0, 1),  # 5% profit
-            Order("AAPL", Position.LONG, 100.0, 1),
-            Order("AAPL", Position.SHORT, 95.0, 1),   # 5% loss
+            Order("AAPL", Side.BUY, 100.0, 1),
+            Order("AAPL", Side.SELL, 110.0, 1),  # 10% profit
+            Order("AAPL", Side.BUY, 100.0, 1),
+            Order("AAPL", Side.SELL, 105.0, 1),  # 5% profit
+            Order("AAPL", Side.BUY, 100.0, 1),
+            Order("AAPL", Side.SELL, 95.0, 1),   # 5% loss
         ]
 
         for i, order in enumerate(orders):
@@ -1527,12 +1527,12 @@ class TestEventBacktesterAdvancedFeatures(unittest.TestCase):
         """Test trading across multiple symbols."""
         # Create trades for multiple symbols
         orders = [
-            Order("AAPL", Position.LONG, 100.0, 1),
-            Order("GOOGL", Position.LONG, 150.0, 1),
-            Order("MSFT", Position.LONG, 200.0, 1),
-            Order("AAPL", Position.SHORT, 110.0, 1),
-            Order("GOOGL", Position.SHORT, 160.0, 1),
-            Order("MSFT", Position.SHORT, 210.0, 1),
+            Order("AAPL", Side.BUY, 100.0, 1),
+            Order("GOOGL", Side.BUY, 150.0, 1),
+            Order("MSFT", Side.BUY, 200.0, 1),
+            Order("AAPL", Side.SELL, 110.0, 1),
+            Order("GOOGL", Side.SELL, 160.0, 1),
+            Order("MSFT", Side.SELL, 210.0, 1),
         ]
 
         for i, order in enumerate(orders):
@@ -1548,21 +1548,20 @@ class TestEventBacktesterAdvancedFeatures(unittest.TestCase):
 
     def test_order_value_calculation(self):
         """Test Order.get_value() method."""
-        order = Order("AAPL", Position.LONG, 100.0, 2.5)
+        order = Order("AAPL", Side.BUY, 100.0, 2.5)
         expected_value = 100.0 * 2.5
         self.assertEqual(order.get_value(), expected_value)
 
     def test_order_string_representation(self):
         """Test Order.__str__ method."""
-        order = Order("AAPL", Position.LONG, 100.0, 2)
-        expected_str = "LONG 2 AAPL @ $100.000"
+        order = Order("AAPL", Side.BUY, 100.0, 2)
+        expected_str = "BUY 2 AAPL @ $100.000"
         self.assertEqual(str(order), expected_str)
 
     def test_position_enum_values(self):
-        """Test Position enum values."""
-        self.assertEqual(Position.LONG.value, 1)
-        self.assertEqual(Position.SHORT.value, -1)
-        self.assertEqual(Position.NEUTRAL.value, 0)
+        """Test Side enum values."""
+        self.assertEqual(Side.BUY.value, 1)
+        self.assertEqual(Side.SELL.value, -1)
 
     def test_state_history_ffill(self):
         """Test that state history forward fills correctly."""
@@ -1570,8 +1569,8 @@ class TestEventBacktesterAdvancedFeatures(unittest.TestCase):
         timestamp1 = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
         timestamp2 = pd.Timestamp(2024, 1, 1, 12, 0, tz="America/New_York")
 
-        order1 = Order("AAPL", Position.LONG, 100.0, 1)
-        order2 = Order("AAPL", Position.LONG, 110.0, 1)
+        order1 = Order("AAPL", Side.BUY, 100.0, 1)
+        order2 = Order("AAPL", Side.BUY, 110.0, 1)
         self.backtester._place_buy_order(order1, timestamp1)
         self.backtester._place_buy_order(order2, timestamp2)
 
@@ -1795,7 +1794,7 @@ class TestEventBacktesterStressTests(unittest.TestCase):
             self.symbols, 200000000.0)  # 200M cash to cover 100M order
 
         # Test with very large quantities
-        large_order = Order("AAPL", Position.LONG, 100.0, 1000000)
+        large_order = Order("AAPL", Side.BUY, 100.0, 1000000)
         timestamp = pd.Timestamp(2024, 1, 1, 10, 0, tz="America/New_York")
 
         # Should handle large quantities without memory issues

@@ -40,20 +40,19 @@ MSFT   2023-01-03 09:00:00-05:00  136.535  136.99  136.20  136.45   68742.0
 Represents trading orders with position type, symbol, price, and quantity:
 
 ```python
-from backtester import Order, Position
+from backtester import Order, Side
 
 # Create a buy order
-buy_order = Order(symbol="AAPL", position=Position.LONG, price=150.0, quantity=10)
+buy_order = Order(symbol="AAPL", side=Side.BUY, price=150.0, quantity=10)
 
 # Create a sell order  
-sell_order = Order(symbol="AAPL", position=Position.SHORT, price=155.0, quantity=10)
+sell_order = Order(symbol="AAPL", side=Side.SELL, price=155.0, quantity=10)
 ```
 
-#### Position Enum
-Defines the three possible position states:
-- `LONG`: Long position (buy)
-- `SHORT`: Short position (sell) 
-- `NEUTRAL`: No position
+#### Side Enum
+Defines the two possible order sides:
+- `BUY`: Buy order (long position)
+- `SELL`: Sell order (short position)
 
 ### EventBacktester Class
 
@@ -107,10 +106,10 @@ def generate_orders(self, bars: pd.DataFrame, index: pd.Timestamp) -> list[Order
         
         # Trading logic
         if sma_20.loc[index] > sma_50.loc[index]:  # Golden cross
-            orders.append(Order(symbol=symbol, position=Position.LONG, 
+            orders.append(Order(symbol=symbol, side=Side.BUY, 
                         price=current_price, quantity=10))
         elif sma_20.loc[index] < sma_50.loc[index]:  # Death cross
-            orders.append(Order(symbol=symbol, position=Position.SHORT, 
+            orders.append(Order(symbol=symbol, side=Side.SELL, 
                         price=current_price, quantity=10)
 
     return orders  # No trade
@@ -172,7 +171,7 @@ Other methods are included - any class method without a `_` prefix is appropriat
 
 #### 1. Strategy Implementation
 ```python
-from backtester import EventBacktester, Order, Position
+from backtester import EventBacktester, Order, Side
 
 class MyStrategy(EventBacktester):
     def precompute_step(self, bars):

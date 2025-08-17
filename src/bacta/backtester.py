@@ -15,7 +15,7 @@ from bacta.utilities.plotting import DEFAULT_FIGSIZE, plt_show
 logger = get_logger()
 
 # get version from pyproject.toml
-VERSION = "0.4.6"
+VERSION = "0.4.7"
 
 
 class Position(Enum):
@@ -24,26 +24,35 @@ class Position(Enum):
     NEUTRAL = 0
 
 
+class Side(Enum):
+    BUY = 1
+    SELL = -1
+
+
 QUANTITY_PRECISION = 4
 
 
-class Order:
-    def __init__(self, symbol: str, position: Position, price: float, quantity: float):
+class Order(ABC):
+    def __init__(self, symbol: str, side: Side, price: float = None, quantity: float = 1):
         """
         Order object. This is used to represent an order to be placed.
 
         Args:
             symbol (str): The symbol of the asset.
-            position (Position): The position to take.
+            side (Side): The side to take.
             price (float): The price of the asset.
             quantity (float): The quantity of the asset.
         """
         self.symbol = symbol
-        self.position = position
+        self.side = side
         self.price = price
         self.quantity = quantity
         self.filled = False
-        self.fill_price = None
+
+    def fill(self, price: float = None):
+        """Fill the order."""
+        self.filled = True
+        self.price = price if price is not None else self.price
 
     def get_value(self) -> float:
         """Get the value of the order."""
@@ -51,7 +60,7 @@ class Order:
 
     def __str__(self) -> str:
         """String representation of the order."""
-        return f"{self.position.name} {round(self.quantity, QUANTITY_PRECISION)} {self.symbol} @ ${self.price:<.3f}"
+        return f"{self.side.name} {round(self.quantity, QUANTITY_PRECISION)} {self.symbol} @ ${self.price:<.3f}"
 
 
 class EventBacktester(ABC):
@@ -163,7 +172,7 @@ class EventBacktester(ABC):
         self.state_history.loc[0] = [
             cash, cash, *[0] * len(self.active_symbols)]
         self.order_history = pd.DataFrame(
-            columns=["symbol", "position", "price", "quantity"]
+            columns=["symbol", "side", "price", "quantity"]
         )
         assert len(self.order_history) == 0, "Order history must be empty"
         assert (
@@ -175,26 +184,20 @@ class EventBacktester(ABC):
 
     def _update_state(
         self,
-        symbol: str,
-        price: float,
-        quantity: float,
-        order: Position,
+        order: Order,
         index: pd.Timestamp,
     ):
         """Update the state of the backtester.
         Initial state is 0.
 
         Args:
-            symbol (str): The symbol of the asset.
-            price (float): The price of the asset.
-            quantity (float): The quantity of the asset.
-            order (Position): The order to place.
+            order (Order): The order to place.
             index (pd.Timestamp): The index of the state.
             ffill (bool, optional): Whether to ffill the state for uninitialized values. Defaults to True.
         """
         # get current cash
         current_cash = self.state_history.iloc[-1]["cash"]
-        current_symbol_quantity = self.state_history.iloc[-1][symbol]
+        current_symbol_quantity = self.state_history.iloc[-1][order.symbol]
         if current_symbol_quantity == np.nan:
             current_symbol_quantity = 0
 
@@ -205,19 +208,20 @@ class EventBacktester(ABC):
             )
 
         # update state
-        if order == Position.LONG:
+        if order.side == Side.BUY:
             self.state_history.loc[index,
-                                   "cash"] = current_cash - price * quantity
+                                   "cash"] = current_cash - order.price * order.quantity
             self.state_history.loc[index,
-                                   symbol] = current_symbol_quantity + quantity
-        elif order == Position.SHORT:
+                                   order.symbol] = current_symbol_quantity + order.quantity
+        elif order.side == Side.SELL:
             self.state_history.loc[index,
-                                   "cash"] = current_cash + price * quantity
+                                   "cash"] = current_cash + order.price * order.quantity
             self.state_history.loc[index,
-                                   symbol] = current_symbol_quantity - quantity
+                                   order.symbol] = current_symbol_quantity - order.quantity
 
         # update portfolio valuation
-        self._update_portfolio_value(pd.Series({symbol: price}), index)
+        self._update_portfolio_value(
+            pd.Series({order.symbol: order.price}), index)
 
     def _update_portfolio_value(
         self, prices: pd.Series, index: pd.Timestamp, ffill: bool = True
@@ -249,10 +253,7 @@ class EventBacktester(ABC):
 
     def _update_order_history(
         self,
-        symbol: str,
-        price: float,
-        quantity: float,
-        order: Position,
+        order: Order,
         index: pd.Timestamp,
     ):
         """Update the history of the backtester.
@@ -267,10 +268,10 @@ class EventBacktester(ABC):
         new_history = pd.DataFrame(
             [
                 {
-                    "symbol": symbol,
-                    "position": order.value,
-                    "price": price,
-                    "quantity": quantity,
+                    "symbol": order.symbol,
+                    "side": order.side.value,
+                    "price": order.price,
+                    "quantity": order.quantity,
                 }
             ],
             index=[index],
@@ -287,12 +288,8 @@ class EventBacktester(ABC):
         Place a buy order for a given symbol.
         """
         # update state
-        self._update_state(
-            order.symbol, order.price, order.quantity, Position.LONG, index
-        )
-        self._update_order_history(
-            order.symbol, order.price, order.quantity, Position.LONG, index
-        )
+        self._update_state(order, index)
+        self._update_order_history(order, index)
         self.state_history.loc[index,
                                "cash"] -= self._calculate_transaction_cost(order)
 
@@ -301,13 +298,9 @@ class EventBacktester(ABC):
         Place a sell order for a given symbol.
         """
 
-        # update statez
-        self._update_state(
-            order.symbol, order.price, order.quantity, Position.SHORT, index
-        )
-        self._update_order_history(
-            order.symbol, order.price, order.quantity, Position.SHORT, index
-        )
+        # update state
+        self._update_state(order, index)
+        self._update_order_history(order, index)
         self.state_history.loc[index,
                                "cash"] -= self._calculate_transaction_cost(order)
 
@@ -333,7 +326,7 @@ class EventBacktester(ABC):
         reason = ""
         if (
             not self.allow_overdraft
-            and order.position == Position.LONG
+            and order.side == Side.BUY
             and self.get_current_cash()
             < (order.get_value() + transaction_cost + self.min_cash_balance)
         ):
@@ -348,7 +341,7 @@ class EventBacktester(ABC):
         # check if shorting is allowed
         if (
             not self.allow_short
-            and order.position == Position.SHORT
+            and order.side == Side.SELL
             and self.get_state()[order.symbol] < order.quantity
         ):
             # can only short what we have
@@ -369,9 +362,9 @@ class EventBacktester(ABC):
                     f' + ${transaction_cost:.3f} TC' if transaction_cost > 0 else ''} ({index})"
             )
 
-        if order.position == Position.LONG:
+        if order.side == Side.BUY:
             self._place_buy_order(order, index)
-        elif order.position == Position.SHORT:
+        elif order.side == Side.SELL:
             self._place_sell_order(order, index)
 
     def _close_positions(self, prices: pd.Series, index: pd.Timestamp):
@@ -387,13 +380,13 @@ class EventBacktester(ABC):
                 position = self.get_state()[symbol]
                 if position > 0:
                     self._place_sell_order(
-                        Order(symbol, Position.SHORT,
+                        Order(symbol, Side.SELL,
                               prices[symbol], abs(position)),
                         index,
                     )
                 else:
                     self._place_buy_order(
-                        Order(symbol, Position.LONG,
+                        Order(symbol, Side.BUY,
                               prices[symbol], abs(position)),
                         index,
                     )
@@ -827,15 +820,15 @@ class EventBacktester(ABC):
 
         ```
         self.order_history = pd.DataFrame([
-            {"symbol": "AAPL", "position": Position.LONG.value,
+            {"symbol": "AAPL", "side": Side.BUY.value,
                 "price": 24.0, "quantity": 1},
-            {"symbol": "AAPL", "position": Position.SHORT.value,
+            {"symbol": "AAPL", "side": Side.SELL.value,
                 "price": 22.0, "quantity": 1},
-            {"symbol": "AAPL", "position": Position.LONG.value,
+            {"symbol": "AAPL", "side": Side.BUY.value,
                 "price": 25.0, "quantity": 1},
-            {"symbol": "AAPL", "position": Position.SHORT.value,
+            {"symbol": "AAPL", "side": Side.SELL.value,
                 "price": 24.0, "quantity": 1},
-            {"symbol": "AAPL", "position": Position.SHORT.value,
+            {"symbol": "AAPL", "side": Side.SELL.value,
                 "price": 22.0, "quantity": 3},
         ])
 
@@ -896,10 +889,10 @@ class EventBacktester(ABC):
 
             # Separate long and short orders
             long_orders = symbol_orders[
-                symbol_orders["position"] == Position.LONG.value
+                symbol_orders["side"] == Side.BUY.value
             ].copy()
             short_orders = symbol_orders[
-                symbol_orders["position"] == Position.SHORT.value
+                symbol_orders["side"] == Side.SELL.value
             ].copy()
 
             # Process trades by matching orders chronologically
@@ -1647,10 +1640,10 @@ class EventBacktester(ABC):
                 if not symbol_trades.empty:
                     # Separate buy and sell orders
                     buy_orders = symbol_trades[
-                        symbol_trades["position"] == Position.LONG.value
+                        symbol_trades["side"] == Side.BUY.name
                     ]
                     sell_orders = symbol_trades[
-                        symbol_trades["position"] == Position.SHORT.value
+                        symbol_trades["side"] == Side.SELL.name
                     ]
 
                     # Plot buy orders (green triangles pointing up)
@@ -1916,7 +1909,7 @@ def auto_calculate_periods_per_year(data: pd.Series) -> int:
             avg_time_diff_seconds = np.mean(time_diffs)
             # Convert to periods per year
             periods_per_year = int(365.25 * 24 * 3600 / avg_time_diff_seconds)
-            logger.info(
+            logger.debug(
                 f"Auto-calculated periods per year: {periods_per_year} (avg time diff: {avg_time_diff_seconds:.1f} seconds)"
             )
             return periods_per_year
