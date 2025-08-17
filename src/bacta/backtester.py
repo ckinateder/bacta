@@ -15,7 +15,7 @@ from bacta.utilities.plotting import DEFAULT_FIGSIZE, plt_show
 logger = get_logger()
 
 # get version from pyproject.toml
-VERSION = "0.4.3"
+VERSION = "0.4.5"
 
 
 class Position(Enum):
@@ -1515,13 +1515,22 @@ def calculate_sharpe_ratio_from_returns(returns: pd.Series, risk_free_rate: floa
     Internal method to calculate Sharpe ratio from a series of returns.
     This ensures consistent calculation logic between single and cumulative Sharpe ratios.
 
+    Calculates the annualized Sharpe ratio using the standard formula:
+    Sharpe = (R_p - R_f) / σ_p * sqrt(periods_per_year)
+
+    Where:
+    - R_p is the mean return per period
+    - R_f is the risk-free rate per period
+    - σ_p is the standard deviation of returns per period
+    - periods_per_year is the number of periods per year
+
     Args:
-        returns (pd.Series): Series of returns
-        risk_free_rate (float): Annualized risk-free rate
+        returns (pd.Series): Series of simple returns (pct_change)
+        risk_free_rate (float): Annualized risk-free rate (e.g., 0.02 for 2%)
         periods_per_year (int): Number of periods per year
 
     Returns:
-        float: Calculated Sharpe ratio
+        float: Annualized Sharpe ratio
     """
     if len(returns) == 0:
         return 0.0
@@ -1546,12 +1555,11 @@ def calculate_sharpe_ratio_from_returns(returns: pd.Series, risk_free_rate: floa
             # Negative infinite Sharpe ratio for risk-free negative returns
             return float('-inf')
 
-    # Annualize the returns and standard deviation
-    annualized_return = mean_return * periods_per_year
-    annualized_std = std_return * np.sqrt(periods_per_year)
-
-    # Calculate Sharpe ratio
-    sharpe_ratio = (annualized_return - risk_free_rate) / annualized_std
+    # Calculate Sharpe ratio using the standard annualization formula
+    # Sharpe = (R_p - R_f) / σ_p * sqrt(periods_per_year)
+    rf_per_period = risk_free_rate / periods_per_year
+    sharpe_ratio = (mean_return - rf_per_period) / \
+        std_return * np.sqrt(periods_per_year)
 
     return sharpe_ratio
 
