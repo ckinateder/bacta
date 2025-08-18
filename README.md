@@ -158,7 +158,6 @@ def precompute_step(self, bars: pd.DataFrame):
 - `get_win_rate(threshold=0.0)`: Calculate win rate and trade analysis
 - `get_buy_and_hold_returns()`: Calculate buy-and-hold benchmark returns
 - `calculate_sharpe_ratio(risk_free_rate, periods_per_year)`: Calculate sharpe ratio
-- `monte_carlo_trade_analysis(test_bars, num_simulations=100`: Run a Monte Carlo analysis on the trades of the backtest.
 
 **Visualization Methods:**
 - `plot_equity_curve()`: Portfolio value over time
@@ -289,7 +288,6 @@ python -m pytest tests
 
 ## Roadmap
 
-- [ ] Add transaction fees
 - [ ] Add streamlit dashboard
 
 ## License
