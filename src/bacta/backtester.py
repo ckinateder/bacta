@@ -15,7 +15,7 @@ from bacta.utilities.plotting import DEFAULT_FIGSIZE, plt_show
 logger = get_logger()
 
 # get version from pyproject.toml
-VERSION = "0.4.7"
+VERSION = "0.4.8"
 
 
 class Position(Enum):
@@ -269,7 +269,7 @@ class EventBacktester(ABC):
             [
                 {
                     "symbol": order.symbol,
-                    "side": order.side.value,
+                    "side": order.side.name,
                     "price": order.price,
                     "quantity": order.quantity,
                 }
@@ -820,15 +820,15 @@ class EventBacktester(ABC):
 
         ```
         self.order_history = pd.DataFrame([
-            {"symbol": "AAPL", "side": Side.BUY.value,
+            {"symbol": "AAPL", "side": Side.BUY.name,
                 "price": 24.0, "quantity": 1},
-            {"symbol": "AAPL", "side": Side.SELL.value,
+            {"symbol": "AAPL", "side": Side.SELL.name,
                 "price": 22.0, "quantity": 1},
-            {"symbol": "AAPL", "side": Side.BUY.value,
+            {"symbol": "AAPL", "side": Side.BUY.name,
                 "price": 25.0, "quantity": 1},
-            {"symbol": "AAPL", "side": Side.SELL.value,
+            {"symbol": "AAPL", "side": Side.SELL.name,
                 "price": 24.0, "quantity": 1},
-            {"symbol": "AAPL", "side": Side.SELL.value,
+            {"symbol": "AAPL", "side": Side.SELL.name,
                 "price": 22.0, "quantity": 3},
         ])
 
@@ -889,10 +889,10 @@ class EventBacktester(ABC):
 
             # Separate long and short orders
             long_orders = symbol_orders[
-                symbol_orders["side"] == Side.BUY.value
+                symbol_orders["side"] == Side.BUY.name
             ].copy()
             short_orders = symbol_orders[
-                symbol_orders["side"] == Side.SELL.value
+                symbol_orders["side"] == Side.SELL.name
             ].copy()
 
             # Process trades by matching orders chronologically

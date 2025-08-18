@@ -2,7 +2,7 @@
 
 Bacta is a Python library for backtesting trading strategies.
 
-![Keltner Channel](img/DUK_CMS_AAPL_Keltner_Channel_Strategy_Performance.png)
+![Keltner Channel](img/DUK_LLY_AEP_EMA_RSI_Strategy_Performance.png)
 
 ## Backtesting Framework
 
@@ -245,9 +245,9 @@ The framework includes a number of plotting methods for visualizing the performa
 - `plot_performance_analysis()`: Comprehensive performance dashboard
 - `plot_trade_history()`: Price charts with trade markers
 
-![Equity Curve](img/DUK_CMS_AAPL_Keltner_Channel_Strategy_Equity_Curve.png)
-![Performance Analysis](img/DUK_CMS_AAPL_Keltner_Channel_Strategy_Performance.png)
-![Trade History](img/DUK_CMS_AAPL_Keltner_Channel_Strategy_Trades.png)
+![Equity Curve](img/DUK_LLY_AEP_EMA_RSI_Strategy_Equity_Curve.png)
+![Performance Analysis](img/DUK_LLY_AEP_EMA_RSI_Strategy_Performance.png)
+![Trade History](img/DUK_LLY_AEP_EMA_RSI_Strategy_Trades.png)
 
 ## Examples
 

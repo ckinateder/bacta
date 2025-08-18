@@ -215,7 +215,7 @@ class TestEventBacktesterUnit(unittest.TestCase):
         history = self.backtester.get_history()
         self.assertEqual(len(history), 1)
         self.assertEqual(history.iloc[0]["symbol"], symbol)
-        self.assertEqual(history.iloc[0]["side"], Side.BUY.value)
+        self.assertEqual(history.iloc[0]["side"], Side.BUY.name)
         self.assertEqual(history.iloc[0]["price"], price)
         self.assertEqual(history.iloc[0]["quantity"], quantity)
 
@@ -251,7 +251,7 @@ class TestEventBacktesterUnit(unittest.TestCase):
         # Check order history
         history = self.backtester.get_history()
         self.assertEqual(len(history), 2)  # Buy + sell
-        self.assertEqual(history.iloc[1]["side"], Side.SELL.value)
+        self.assertEqual(history.iloc[1]["side"], Side.SELL.name)
 
     def test__place_order(self):
         """Test the generic _place_order method."""
