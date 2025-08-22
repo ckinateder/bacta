@@ -137,7 +137,7 @@ class EmaStrategy(EventBacktester):
 # %%
 symbols = ["DUK", "LLY", "AEP"]
 
-shift = - timedelta(days=1)
+shift = timedelta(days=0)
 bars = download_bars(
     symbols,
     start_date=datetime(2025, 4, 1) - shift,

@@ -249,6 +249,14 @@ The framework includes a number of plotting methods for visualizing the performa
 ![Performance Analysis](img/DUK_LLY_AEP_EMA_RSI_Strategy_Performance.png)
 ![Trade History](img/DUK_LLY_AEP_EMA_RSI_Strategy_Trades.png)
 
+## Installation
+
+Install the package with:
+
+```bash
+pip install git+https://github.com/ckinateder/bacta.git
+```
+
 ## Examples
 
 See the [examples](examples) directory for usage examples.
